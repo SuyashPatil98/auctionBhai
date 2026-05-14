@@ -19,7 +19,8 @@ AI-powered Smart Search.
 
 - Next.js 16 + TS + Tailwind v4 scaffold
 - Supabase SSR helpers, auth via `proxy.ts`
-- Magic-link login + email allowlist
+- Email + password sign-up/sign-in, email allowlist
+- Postgres trigger auto-creates `profiles` row on sign-up
 - Drizzle schema for identity, real-world entities, AI cache, ops
 - App shell (nav, login, dashboard placeholder)
 
