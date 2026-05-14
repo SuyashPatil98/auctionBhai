@@ -3,7 +3,7 @@
  *
  * Computes a baseline 0-100 score from features we always have:
  *   - age (from DOB)
- *   - position
+ *   - position (with per-position age curves)
  *
  * This is the *fallback* layer — every player gets a Layer 1 score so we
  * always have a defensible default. Layers 2 (market value) and 3 (AI
@@ -24,7 +24,6 @@ export type Layer1Result = {
   positionBaseline: number;
 };
 
-/** Anchor at 50, position differences come out in normalization later. */
 const POSITION_BASELINE: Record<DbPosition, number> = {
   GK: 50,
   DEF: 50,
@@ -33,18 +32,67 @@ const POSITION_BASELINE: Record<DbPosition, number> = {
 };
 
 /**
- * Age curve. Centered on peak years (25-28). Drops fast above 32 and
- * is muted below 21 (raw potential alone isn't worth much in fantasy
- * for a tournament-format game).
+ * Per-position age curves. Different positions peak at different ages:
+ *  - GKs peak latest (28-34) and decline slowly; experience matters
+ *  - DEFs peak slightly earlier and rely on positional reading
+ *  - MIDs peak 25-30; tempo + workload central
+ *  - FWDs peak earliest (24-28) — pace and explosiveness fade fast
+ *
+ * Each row maps an age band (inclusive lower bound) to the adjustment
+ * added to the position baseline. The lookup uses the highest band
+ * whose lower bound the age meets.
  */
-function ageAdjustment(age: number): number {
-  if (age < 18) return -6;
-  if (age < 21) return -3;
-  if (age < 25) return +2;
-  if (age < 29) return +5;
-  if (age < 32) return +2;
-  if (age < 35) return -3;
-  return -6;
+type AgeCurve = Array<{ from: number; adj: number }>;
+
+const AGE_CURVE: Record<DbPosition, AgeCurve> = {
+  GK: [
+    { from: 0, adj: -8 },
+    { from: 18, adj: -5 },
+    { from: 22, adj: -2 },
+    { from: 25, adj: +1 },
+    { from: 28, adj: +5 }, // GK peak
+    { from: 35, adj: +3 },
+    { from: 38, adj: -2 },
+    { from: 40, adj: -6 },
+  ],
+  DEF: [
+    { from: 0, adj: -8 },
+    { from: 18, adj: -3 },
+    { from: 22, adj: +2 },
+    { from: 26, adj: +5 }, // DEF peak (26-31)
+    { from: 32, adj: +1 },
+    { from: 34, adj: -3 },
+    { from: 37, adj: -7 },
+  ],
+  MID: [
+    { from: 0, adj: -7 },
+    { from: 18, adj: -3 },
+    { from: 22, adj: +2 },
+    { from: 25, adj: +5 }, // MID peak (25-30)
+    { from: 31, adj: +1 },
+    { from: 33, adj: -3 },
+    { from: 36, adj: -7 },
+  ],
+  FWD: [
+    { from: 0, adj: -7 },
+    { from: 18, adj: -2 },
+    { from: 21, adj: +3 },
+    { from: 24, adj: +5 }, // FWD peak (24-28)
+    { from: 29, adj: +1 },
+    { from: 31, adj: -2 },
+    { from: 33, adj: -5 },
+    { from: 35, adj: -8 },
+  ],
+};
+
+function ageAdjustment(age: number, position: DbPosition): number {
+  const curve = AGE_CURVE[position];
+  let adj = curve[0].adj;
+  for (const band of curve) {
+    if (age >= band.from) adj = band.adj;
+    else break;
+  }
+  return adj;
 }
 
 export function ageFromDob(dob: string | null, asOf = new Date()): number | null {
@@ -61,7 +109,7 @@ export function ageFromDob(dob: string | null, asOf = new Date()): number | null
 export function computeLayer1(inputs: Layer1Inputs): Layer1Result {
   const positionBaseline = POSITION_BASELINE[inputs.position];
   const age = ageFromDob(inputs.dob);
-  const adj = age !== null ? ageAdjustment(age) : 0;
+  const adj = age !== null ? ageAdjustment(age, inputs.position) : 0;
   return {
     score: positionBaseline + adj,
     age,
