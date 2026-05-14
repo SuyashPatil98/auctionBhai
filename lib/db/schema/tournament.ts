@@ -2,6 +2,7 @@ import {
   boolean,
   char,
   date,
+  numeric,
   pgTable,
   smallint,
   text,
@@ -29,6 +30,14 @@ export const countries = pgTable("countries", {
   flagUrl: text("flag_url"),
   groupLetter: char("group_letter", { length: 1 }),
   eliminatedAt: timestamp("eliminated_at", { withTimezone: true }),
+  // Team-strength prior, used by the bracket Monte Carlo. Higher = stronger.
+  elo: numeric("elo", { precision: 6, scale: 1 }),
+  // Output of the simulator: expected games played in WC 2026.
+  // 3.0 = group-stage exit, up to ~7.5 for heavy favorites.
+  expectedMatches: numeric("expected_matches", { precision: 3, scale: 2 }),
+  expectedMatchesUpdatedAt: timestamp("expected_matches_updated_at", {
+    withTimezone: true,
+  }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { countries, playerRatings, realPlayers } from "@/lib/db/schema";
+import {
+  countries,
+  playerPrices,
+  playerRatings,
+  realPlayers,
+} from "@/lib/db/schema";
 import { and, asc, desc, eq, ilike, or, sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -28,8 +33,13 @@ export default async function PlayersPage({
   const posFilter = POSITIONS.includes(position as Position)
     ? (position as Position)
     : null;
-  const sortMode =
-    sort === "name" || sort === "country" ? sort : "rating"; // default
+  const sortMode: "name" | "country" | "rating" | "price" =
+    sort === "name" ||
+    sort === "country" ||
+    sort === "rating" ||
+    sort === "price"
+      ? sort
+      : "price"; // default to price — it's what the auction cares about
 
   const filters = [];
   if (q && q.trim()) {
@@ -41,7 +51,8 @@ export default async function PlayersPage({
   if (posFilter) filters.push(eq(realPlayers.position, posFilter));
   if (country) filters.push(eq(countries.code, country.toUpperCase()));
 
-  // Subquery: latest rating per player.
+  // Latest rating per player (max captures latest baseline; we re-write
+  // with each compute:ratings run).
   const latestRating = db
     .select({
       realPlayerId: playerRatings.realPlayerId,
@@ -56,7 +67,16 @@ export default async function PlayersPage({
       ? [asc(realPlayers.displayName)]
       : sortMode === "country"
       ? [asc(countries.name), asc(realPlayers.displayName)]
-      : [desc(sql`coalesce(${latestRating.rating}, 0)`), asc(realPlayers.displayName)];
+      : sortMode === "rating"
+      ? [
+          desc(sql`coalesce(${latestRating.rating}, 0)`),
+          asc(realPlayers.displayName),
+        ]
+      : // price (default)
+        [
+          desc(sql`coalesce(${playerPrices.price}, 0)`),
+          desc(sql`coalesce(${latestRating.rating}, 0)`),
+        ];
 
   const rows = await db
     .select({
@@ -69,10 +89,13 @@ export default async function PlayersPage({
       countryName: countries.name,
       flagUrl: countries.flagUrl,
       rating: latestRating.rating,
+      price: playerPrices.price,
+      tier: playerPrices.tier,
     })
     .from(realPlayers)
     .innerJoin(countries, eq(realPlayers.countryId, countries.id))
     .leftJoin(latestRating, eq(latestRating.realPlayerId, realPlayers.id))
+    .leftJoin(playerPrices, eq(playerPrices.realPlayerId, realPlayers.id))
     .where(filters.length > 0 ? and(...filters) : undefined)
     .orderBy(...orderBy)
     .limit(500);
@@ -144,6 +167,7 @@ export default async function PlayersPage({
             defaultValue={sortMode}
             className="rounded-md border border-input bg-background px-3 py-1.5"
           >
+            <option value="price">Price ↓</option>
             <option value="rating">Rating ↓</option>
             <option value="name">Name</option>
             <option value="country">Country</option>
@@ -176,8 +200,10 @@ export default async function PlayersPage({
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
+                <th className="text-right px-3 py-2 w-16">Price</th>
                 <th className="text-right px-3 py-2 w-16">Rating</th>
                 <th className="text-left px-3 py-2">Player</th>
+                <th className="text-left px-3 py-2">Tier</th>
                 <th className="text-left px-3 py-2">Country</th>
                 <th className="text-left px-3 py-2">Pos</th>
                 <th className="text-right px-3 py-2">#</th>
@@ -192,6 +218,13 @@ export default async function PlayersPage({
                     className="border-t border-border hover:bg-muted/30"
                   >
                     <td className="px-3 py-2 text-right tabular-nums">
+                      {p.price !== null && p.price !== undefined ? (
+                        <PriceBadge value={p.price} />
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
                       {rating !== null ? (
                         <RatingBadge value={rating} />
                       ) : (
@@ -205,6 +238,9 @@ export default async function PlayersPage({
                       >
                         {p.displayName}
                       </Link>
+                    </td>
+                    <td className="px-3 py-2">
+                      {p.tier ? <TierBadge tier={p.tier} /> : "—"}
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">
                       {p.flagUrl && (
@@ -262,4 +298,35 @@ function RatingBadge({ value }: { value: number }) {
       ? "text-muted-foreground"
       : "text-muted-foreground/60";
   return <span className={tone}>{value.toFixed(1)}</span>;
+}
+
+function PriceBadge({ value }: { value: number }) {
+  const tone =
+    value >= 30
+      ? "text-emerald-700 dark:text-emerald-400 font-bold"
+      : value >= 15
+      ? "text-foreground font-semibold"
+      : value >= 5
+      ? "text-foreground"
+      : "text-muted-foreground";
+  return <span className={tone}>{value}</span>;
+}
+
+function TierBadge({ tier }: { tier: string }) {
+  const styles: Record<string, string> = {
+    superstar: "bg-rose-500/15 text-rose-700 dark:text-rose-400",
+    star: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+    starter: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+    rotation: "bg-sky-500/15 text-sky-700 dark:text-sky-400",
+    depth: "bg-muted text-muted-foreground",
+  };
+  return (
+    <span
+      className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider ${
+        styles[tier] ?? "bg-muted text-muted-foreground"
+      }`}
+    >
+      {tier}
+    </span>
+  );
 }

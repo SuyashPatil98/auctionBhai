@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import {
   countries,
   playerClubStats,
+  playerPrices,
   playerRatings,
   realPlayers,
   transfermarktPlayers,
@@ -153,6 +154,13 @@ export default async function PlayerDetailPage({ params }: { params: Params }) {
     .orderBy(desc(playerClubStats.importedAt))
     .limit(1);
 
+  // Auction price + tier.
+  const [price] = await db
+    .select()
+    .from(playerPrices)
+    .where(eq(playerPrices.realPlayerId, id))
+    .limit(1);
+
   // Position rank within pool.
   const [rank] = (await db.execute(sql`
     with pool as (
@@ -227,16 +235,31 @@ export default async function PlayerDetailPage({ params }: { params: Params }) {
             </p>
           </div>
 
-          {rating !== null && (
-            <div className="text-right">
-              <p className="text-xs uppercase tracking-widest text-muted-foreground">
-                Rating
-              </p>
-              <p className="text-5xl font-bold tabular-nums leading-none mt-1">
-                {rating.toFixed(1)}
-              </p>
-            </div>
-          )}
+          <div className="flex flex-col sm:flex-row items-end gap-4">
+            {price && (
+              <div className="text-right">
+                <p className="text-xs uppercase tracking-widest text-muted-foreground">
+                  Auction price
+                </p>
+                <p className="text-5xl font-bold tabular-nums leading-none mt-1 text-emerald-700 dark:text-emerald-400">
+                  {price.price}
+                </p>
+                <p className="mt-1 text-xs uppercase tracking-wider text-muted-foreground">
+                  {price.tier}
+                </p>
+              </div>
+            )}
+            {rating !== null && (
+              <div className="text-right">
+                <p className="text-xs uppercase tracking-widest text-muted-foreground">
+                  Rating
+                </p>
+                <p className="text-3xl font-semibold tabular-nums leading-none mt-1">
+                  {rating.toFixed(1)}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Position rank + pool bar */}
@@ -278,6 +301,61 @@ export default async function PlayerDetailPage({ params }: { params: Params }) {
           </p>
         )}
       </section>
+
+      {/* PRICE BREAKDOWN */}
+      {price && (
+        <section className="space-y-3">
+          <h2 className="text-xs uppercase tracking-widest text-muted-foreground">
+            What he should cost
+          </h2>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <StatCard
+              label="Price"
+              value={String(price.price)}
+              sub={`${price.tier} tier`}
+            />
+            <StatCard
+              label="Expected matches"
+              value={fmt(price.expectedMatches, 2)}
+              sub={
+                price.expectedMatches != null && Number(price.expectedMatches) >= 5.5
+                  ? "deep tournament run"
+                  : Number(price.expectedMatches) <= 3.5
+                  ? "group stage exit likely"
+                  : "into the knockouts"
+              }
+            />
+            <StatCard
+              label="Expected points"
+              value={fmt(price.expectedPoints, 1)}
+              sub="from rating + matches"
+            />
+            <StatCard
+              label="Starter chance"
+              value={
+                price.inputs &&
+                typeof (price.inputs as { starterProb?: number })
+                  .starterProb === "number"
+                  ? `${Math.round(
+                      (price.inputs as { starterProb: number }).starterProb *
+                        100
+                    )}%`
+                  : "—"
+              }
+              sub={
+                price.inputs &&
+                typeof (price.inputs as { positionRankInCountry?: number })
+                  .positionRankInCountry === "number"
+                  ? `#${
+                      (price.inputs as { positionRankInCountry: number })
+                        .positionRankInCountry
+                    } at ${player.position}`
+                  : undefined
+              }
+            />
+          </div>
+        </section>
+      )}
 
       {/* CLUB SEASON STATS */}
       {club ? (
