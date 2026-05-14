@@ -19,6 +19,7 @@
     "apply-sql": "tsx scripts/apply-sql.ts",
     "compute:ratings": "tsx scripts/compute-ratings.ts",
     "seed:elos": "tsx scripts/seed-country-elos.ts",
+    "seed:league": "tsx scripts/seed-league.ts",
     "sim:bracket": "tsx scripts/simulate-bracket.ts",
     "compute:prices": "tsx scripts/compute-prices.ts"
   },

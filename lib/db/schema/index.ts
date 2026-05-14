@@ -8,3 +8,4 @@ export * from "./ops";
 export * from "./transfermarkt";
 export * from "./rating";
 export * from "./club_stats";
+export * from "./auction";
