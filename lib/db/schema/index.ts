@@ -5,3 +5,5 @@ export * from "./tournament";
 export * from "./fixtures";
 export * from "./ai";
 export * from "./ops";
+export * from "./transfermarkt";
+export * from "./rating";

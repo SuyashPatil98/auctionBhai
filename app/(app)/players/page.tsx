@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { countries, realPlayers } from "@/lib/db/schema";
-import { and, asc, eq, ilike, or } from "drizzle-orm";
+import { countries, playerRatings, realPlayers } from "@/lib/db/schema";
+import { and, asc, desc, eq, ilike, or, sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +13,7 @@ type SearchParams = Promise<{
   q?: string;
   position?: string;
   country?: string;
+  sort?: string;
 }>;
 
 const POSITIONS = ["GK", "DEF", "MID", "FWD"] as const;
@@ -23,10 +24,12 @@ export default async function PlayersPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const { q, position, country } = await searchParams;
+  const { q, position, country, sort } = await searchParams;
   const posFilter = POSITIONS.includes(position as Position)
     ? (position as Position)
     : null;
+  const sortMode =
+    sort === "name" || sort === "country" ? sort : "rating"; // default
 
   const filters = [];
   if (q && q.trim()) {
@@ -38,6 +41,23 @@ export default async function PlayersPage({
   if (posFilter) filters.push(eq(realPlayers.position, posFilter));
   if (country) filters.push(eq(countries.code, country.toUpperCase()));
 
+  // Subquery: latest rating per player.
+  const latestRating = db
+    .select({
+      realPlayerId: playerRatings.realPlayerId,
+      rating: sql<number>`max(${playerRatings.rating}::numeric)`.as("rating"),
+    })
+    .from(playerRatings)
+    .groupBy(playerRatings.realPlayerId)
+    .as("lr");
+
+  const orderBy =
+    sortMode === "name"
+      ? [asc(realPlayers.displayName)]
+      : sortMode === "country"
+      ? [asc(countries.name), asc(realPlayers.displayName)]
+      : [desc(sql`coalesce(${latestRating.rating}, 0)`), asc(realPlayers.displayName)];
+
   const rows = await db
     .select({
       id: realPlayers.id,
@@ -48,11 +68,13 @@ export default async function PlayersPage({
       countryCode: countries.code,
       countryName: countries.name,
       flagUrl: countries.flagUrl,
+      rating: latestRating.rating,
     })
     .from(realPlayers)
     .innerJoin(countries, eq(realPlayers.countryId, countries.id))
+    .leftJoin(latestRating, eq(latestRating.realPlayerId, realPlayers.id))
     .where(filters.length > 0 ? and(...filters) : undefined)
-    .orderBy(asc(countries.name), asc(realPlayers.displayName))
+    .orderBy(...orderBy)
     .limit(500);
 
   const countryList = await db
@@ -68,6 +90,8 @@ export default async function PlayersPage({
           <p className="text-sm text-muted-foreground">
             {rows.length} {rows.length === 1 ? "player" : "players"}
             {rows.length >= 500 ? " (showing first 500)" : ""}
+            {" · sorted by "}
+            {sortMode}
           </p>
         </div>
       </div>
@@ -113,6 +137,18 @@ export default async function PlayersPage({
             ))}
           </select>
         </label>
+        <label className="flex flex-col">
+          <span className="text-xs text-muted-foreground mb-1">Sort</span>
+          <select
+            name="sort"
+            defaultValue={sortMode}
+            className="rounded-md border border-input bg-background px-3 py-1.5"
+          >
+            <option value="rating">Rating ↓</option>
+            <option value="name">Name</option>
+            <option value="country">Country</option>
+          </select>
+        </label>
         <button
           type="submit"
           className="rounded-md bg-primary text-primary-foreground px-3 py-1.5 text-sm font-medium hover:opacity-90 transition"
@@ -140,6 +176,7 @@ export default async function PlayersPage({
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
+                <th className="text-right px-3 py-2 w-16">Rating</th>
                 <th className="text-left px-3 py-2">Player</th>
                 <th className="text-left px-3 py-2">Country</th>
                 <th className="text-left px-3 py-2">Pos</th>
@@ -147,28 +184,48 @@ export default async function PlayersPage({
               </tr>
             </thead>
             <tbody>
-              {rows.map((p) => (
-                <tr key={p.id} className="border-t border-border hover:bg-muted/30">
-                  <td className="px-3 py-2 font-medium">{p.displayName}</td>
-                  <td className="px-3 py-2 text-muted-foreground">
-                    {p.flagUrl && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={p.flagUrl}
-                        alt=""
-                        className="inline-block w-4 h-4 mr-1 align-text-bottom"
-                      />
-                    )}
-                    {p.countryName}
-                  </td>
-                  <td className="px-3 py-2">
-                    <PositionBadge position={p.position} />
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                    {p.shirtNumber ?? "—"}
-                  </td>
-                </tr>
-              ))}
+              {rows.map((p) => {
+                const rating = p.rating !== null ? Number(p.rating) : null;
+                return (
+                  <tr
+                    key={p.id}
+                    className="border-t border-border hover:bg-muted/30"
+                  >
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {rating !== null ? (
+                        <RatingBadge value={rating} />
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 font-medium">
+                      <Link
+                        href={`/players/${p.id}`}
+                        className="hover:underline"
+                      >
+                        {p.displayName}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {p.flagUrl && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={p.flagUrl}
+                          alt=""
+                          className="inline-block w-4 h-4 mr-1 align-text-bottom"
+                        />
+                      )}
+                      {p.countryName}
+                    </td>
+                    <td className="px-3 py-2">
+                      <PositionBadge position={p.position} />
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                      {p.shirtNumber ?? "—"}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -193,4 +250,16 @@ function PositionBadge({ position }: { position: string }) {
       {position}
     </span>
   );
+}
+
+function RatingBadge({ value }: { value: number }) {
+  const tone =
+    value >= 85
+      ? "text-rose-700 dark:text-rose-400 font-semibold"
+      : value >= 70
+      ? "text-foreground font-medium"
+      : value >= 50
+      ? "text-muted-foreground"
+      : "text-muted-foreground/60";
+  return <span className={tone}>{value.toFixed(1)}</span>;
 }
