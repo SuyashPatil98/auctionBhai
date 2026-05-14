@@ -80,7 +80,9 @@ export function positionNormalize<
   return rows.map((r) => {
     const s = stats.get(r.position)!;
     const z = (r.preNormScore - s.mean) / s.std;
-    const score = Math.max(0, Math.min(100, 50 + z * (50 / 2.5)));
+    // ±3σ → ±42, leaves headroom at the top so we don't clip the truly
+    // elite at the ceiling. Outliers beyond 3σ still clamp to [0, 100].
+    const score = Math.max(0, Math.min(100, 50 + z * 14));
     return { ...r, score: Math.round(score * 100) / 100 };
   });
 }

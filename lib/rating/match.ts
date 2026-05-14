@@ -21,6 +21,9 @@ export type PlayerMatchRow = {
   tmDob: string | null;
   tmSubPosition: string | null;
   marketValueEur: number | null;
+  highestMarketValueEur: number | null;
+  internationalCaps: number | null;
+  internationalGoals: number | null;
   nameSimilarity: number | null;
   matchQuality: MatchQuality;
 };
@@ -58,18 +61,21 @@ export async function findBestMatches(): Promise<PlayerMatchRow[]> {
 
   const rows = (await db.execute(sql`
     select
-      rp.id                       as real_player_id,
-      rp.full_name                as real_player_name,
-      rp.position                 as position,
-      rp.dob                      as dob,
-      rp.club                     as club,
-      c.name                      as country_name,
-      tm.tm_player_id             as tm_player_id,
-      tm.name                     as tm_name,
-      tm.date_of_birth            as tm_dob,
-      tm.sub_position             as tm_sub_position,
-      tm.market_value_eur         as market_value_eur,
-      tm.name_sim                 as name_similarity
+      rp.id                            as real_player_id,
+      rp.full_name                     as real_player_name,
+      rp.position                      as position,
+      rp.dob                           as dob,
+      rp.club                          as club,
+      c.name                           as country_name,
+      tm.tm_player_id                  as tm_player_id,
+      tm.name                          as tm_name,
+      tm.date_of_birth                 as tm_dob,
+      tm.sub_position                  as tm_sub_position,
+      tm.market_value_eur              as market_value_eur,
+      tm.highest_market_value_eur      as highest_market_value_eur,
+      tm.international_caps            as international_caps,
+      tm.international_goals           as international_goals,
+      tm.name_sim                      as name_similarity
     from real_players rp
     join countries c on c.id = rp.country_id
     left join lateral (
@@ -79,6 +85,9 @@ export async function findBestMatches(): Promise<PlayerMatchRow[]> {
         tmp.date_of_birth,
         tmp.sub_position,
         tmp.market_value_eur,
+        tmp.highest_market_value_eur,
+        tmp.international_caps,
+        tmp.international_goals,
         similarity(lower(tmp.name), lower(rp.full_name)) as name_sim
       from transfermarkt_players tmp
       where lower(tmp.name) % lower(rp.full_name)
@@ -99,18 +108,17 @@ export async function findBestMatches(): Promise<PlayerMatchRow[]> {
     tm_dob: string | null;
     tm_sub_position: string | null;
     market_value_eur: number | string | null;
+    highest_market_value_eur: number | string | null;
+    international_caps: number | string | null;
+    international_goals: number | string | null;
     name_similarity: number | string | null;
   }>;
 
+  const toNum = (v: number | string | null | undefined): number | null =>
+    v === null || v === undefined ? null : Number(v);
+
   return rows.map((r) => {
-    const sim =
-      r.name_similarity === null || r.name_similarity === undefined
-        ? null
-        : Number(r.name_similarity);
-    const mv =
-      r.market_value_eur === null || r.market_value_eur === undefined
-        ? null
-        : Number(r.market_value_eur);
+    const sim = toNum(r.name_similarity);
     return {
       realPlayerId: r.real_player_id,
       realPlayerName: r.real_player_name,
@@ -122,7 +130,10 @@ export async function findBestMatches(): Promise<PlayerMatchRow[]> {
       tmName: r.tm_name,
       tmDob: r.tm_dob,
       tmSubPosition: r.tm_sub_position,
-      marketValueEur: mv,
+      marketValueEur: toNum(r.market_value_eur),
+      highestMarketValueEur: toNum(r.highest_market_value_eur),
+      internationalCaps: toNum(r.international_caps),
+      internationalGoals: toNum(r.international_goals),
       nameSimilarity: sim,
       matchQuality: classifyQuality(sim, r.dob, r.tm_dob),
     };

@@ -15,6 +15,7 @@
     "check:fd": "tsx scripts/check-football-data.ts",
     "ingest": "tsx scripts/ingest.ts",
     "import:tm": "tsx scripts/import-transfermarkt.ts",
+    "import:fbref": "tsx scripts/import-fbref.ts",
     "apply-sql": "tsx scripts/apply-sql.ts",
     "compute:ratings": "tsx scripts/compute-ratings.ts"
   },

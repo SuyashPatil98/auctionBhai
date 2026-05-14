@@ -37,6 +37,15 @@ yarn-error.log*
 # Claude Code assistant local state
 .claude/
 
+# Hand-imported raw datasets (Kaggle CSVs, etc.) — too large for git
+/lib/data/*.csv
+/lib/data/*.csv.gz
+/lib/data/*.zip
+!/lib/data/.gitkeep
+# Kaggle downloads tend to land at the project root
+/archive.zip
+/*.csv.zip
+
 # vercel
 .vercel
 
