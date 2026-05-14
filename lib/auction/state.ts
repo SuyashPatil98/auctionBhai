@@ -112,6 +112,39 @@ export function validateBid(args: {
 }
 
 /**
+ * Compute the new closes_at after a bid lands.
+ *
+ * Anti-snipe rule: if there's less than `antisnipeTriggerSeconds` remaining,
+ * extend by `antisnipeExtendSeconds` from now (regardless of how short the
+ * remaining time was). Otherwise just keep the existing closes_at, but ensure
+ * at least `bidSeconds` remain.
+ */
+export function newClosesAt(args: {
+  currentCloses: Date | null;
+  now: Date;
+  bidSeconds: number;
+  antisnipeTriggerSeconds: number;
+  antisnipeExtendSeconds: number;
+}): { newCloses: Date; isAntisnipe: boolean } {
+  const nowMs = args.now.getTime();
+  const currentMs = args.currentCloses
+    ? args.currentCloses.getTime()
+    : nowMs;
+  const remaining = (currentMs - nowMs) / 1000;
+
+  if (remaining < args.antisnipeTriggerSeconds) {
+    return {
+      newCloses: new Date(nowMs + args.antisnipeExtendSeconds * 1000),
+      isAntisnipe: true,
+    };
+  }
+  return {
+    newCloses: new Date(Math.max(currentMs, nowMs + args.bidSeconds * 1000)),
+    isAntisnipe: false,
+  };
+}
+
+/**
  * Decide which manager nominates next.
  *
  * Rotates through league_members in `nomination_order`, regardless of

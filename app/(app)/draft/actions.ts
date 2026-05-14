@@ -10,6 +10,7 @@ import {
   drafts,
   leagueMembers,
   managerBudgets,
+  proxyBids,
   realPlayers,
   rosters,
 } from "@/lib/db/schema";
@@ -17,10 +18,12 @@ import { createClient } from "@/lib/supabase/server";
 import {
   maxBidNow,
   minNextBid,
+  newClosesAt,
   nextIncrement,
   nextNominator,
   validateBid,
 } from "@/lib/auction/state";
+import { resolveProxiesOnLot } from "@/lib/auction/proxy";
 
 // ============================================================================
 // Auth helpers
@@ -352,16 +355,14 @@ export async function placeBid(formData: FormData) {
       return { ok: false as const, reason: v.reason };
     }
 
-    // Accepted. Update lot, log bid.
-    const newCloses =
-      lot.closes_at !== null && lot.closes_at !== undefined
-        ? new Date(
-            Math.max(
-              new Date(lot.closes_at).getTime(),
-              Date.now() + d.bidSeconds * 1000
-            )
-          )
-        : new Date(Date.now() + d.bidSeconds * 1000);
+    // Accepted. Update lot, log bid, then resolve proxies.
+    const { newCloses, isAntisnipe } = newClosesAt({
+      currentCloses: lot.closes_at ? new Date(lot.closes_at) : null,
+      now: new Date(),
+      bidSeconds: d.bidSeconds,
+      antisnipeTriggerSeconds: d.antisnipeTriggerSeconds,
+      antisnipeExtendSeconds: d.antisnipeExtendSeconds,
+    });
 
     await tx
       .update(auctionLots)
@@ -369,6 +370,7 @@ export async function placeBid(formData: FormData) {
         currentBid: amount,
         currentBidderId: profileId,
         closesAt: newCloses,
+        status: isAntisnipe ? "closing" : "open",
       })
       .where(eq(auctionLots.id, lot.id));
 
@@ -378,6 +380,9 @@ export async function placeBid(formData: FormData) {
       amount,
       accepted: true,
     });
+
+    // Resolve any proxies that want to keep bidding (within tx).
+    await resolveProxiesOnLot(tx, lot.id);
 
     return { ok: true as const };
   });
@@ -473,6 +478,57 @@ export async function resolveExpired(draftId: string) {
         })
         .where(eq(drafts.id, d.id));
     }
+  });
+
+  revalidatePath("/draft");
+}
+
+// ============================================================================
+// setProxy — manager sets a max-bid for a lot
+// ============================================================================
+
+export async function setProxy(formData: FormData) {
+  const profileId = await requireAuthedProfile();
+  const lotId = String(formData.get("lot_id") ?? "");
+  const maxAmount = Number(formData.get("max_amount") ?? 0);
+  if (!lotId || !Number.isFinite(maxAmount) || maxAmount <= 0) {
+    throw new Error("missing fields");
+  }
+
+  await db.transaction(async (tx) => {
+    // Lock the lot.
+    const [lot] = (await tx.execute(sql`
+      select id, draft_id, current_bid, status from auction_lots
+      where id = ${lotId} for update
+    `)) as unknown as Array<{
+      id: string;
+      draft_id: string;
+      current_bid: number;
+      status: string;
+    }>;
+    if (!lot) throw new Error("lot not found");
+    if (lot.status !== "open" && lot.status !== "closing") {
+      throw new Error(`lot is ${lot.status}`);
+    }
+
+    // Upsert proxy.
+    await tx
+      .insert(proxyBids)
+      .values({
+        lotId: lot.id,
+        profileId,
+        maxAmount,
+      })
+      .onConflictDoUpdate({
+        target: [proxyBids.lotId, proxyBids.profileId],
+        set: {
+          maxAmount: sql`excluded.max_amount`,
+          updatedAt: sql`now()`,
+        },
+      });
+
+    // Run resolution — proxy might fire immediately.
+    await resolveProxiesOnLot(tx, lot.id);
   });
 
   revalidatePath("/draft");
