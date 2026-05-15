@@ -64,8 +64,6 @@ type Selection = "off" | "standard" | "important";
 const CATEGORY_LABELS: Record<FactorCategory, string> = {
   attacking: "Attacking",
   defensive: "Defensive",
-  passing: "Passing & creativity",
-  possession: "Possession",
   goalkeeping: "Goalkeeping",
   playing_time: "Playing time",
   profile: "Profile",
@@ -75,9 +73,7 @@ const CATEGORY_LABELS: Record<FactorCategory, string> = {
 
 const CATEGORY_ORDER: FactorCategory[] = [
   "attacking",
-  "passing",
   "defensive",
-  "possession",
   "goalkeeping",
   "playing_time",
   "profile",

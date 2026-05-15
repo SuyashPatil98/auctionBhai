@@ -165,28 +165,28 @@ test("standard factor at 90th + important at 50th: standard can't lift much", ()
 test("missing factor is silently dropped, coverage reflects it", () => {
   const weights: FactorWeight[] = [
     { factor_id: "season_goals", importance: "important" },
-    { factor_id: "xg_per_90", importance: "important" }, // no data
+    { factor_id: "clean_sheets", importance: "important" }, // no data
     { factor_id: "market_value_eur", importance: "standard" },
   ];
   const percentiles: FactorPercentile[] = [
     { factor_id: "season_goals", percentile: 0.9, has_data: true },
-    { factor_id: "xg_per_90", percentile: 0.5, has_data: false }, // dropped
+    { factor_id: "clean_sheets", percentile: 0.5, has_data: false }, // dropped
     { factor_id: "market_value_eur", percentile: 0.8, has_data: true },
   ];
   const result = computePersonalRating(weights, percentiles);
   assert.equal(result.coverage, 2);
   assert.equal(result.total, 3);
-  // Same as "important 0.9 + standard 0.8" without xg_per_90:
+  // Same as "important 0.9 + standard 0.8" without clean_sheets:
   // p1' = 0.92, p2' = 0.84. log-sum = 2*ln(0.92)+ln(0.84) = -0.341. /3 = -0.114. exp = 0.892 → 89.
   assert.equal(result.score, 89);
 });
 
 test("zero coverage → neutral 50, not 0", () => {
   const weights: FactorWeight[] = [
-    { factor_id: "xg_per_90", importance: "important" },
+    { factor_id: "clean_sheets", importance: "important" },
   ];
   const percentiles: FactorPercentile[] = [
-    { factor_id: "xg_per_90", percentile: 0.5, has_data: false },
+    { factor_id: "clean_sheets", percentile: 0.5, has_data: false },
   ];
   const result = computePersonalRating(weights, percentiles);
   assert.equal(result.score, 50);
@@ -200,11 +200,11 @@ test("zero coverage → neutral 50, not 0", () => {
 test("breakdown has one entry per weight, even for missing", () => {
   const weights: FactorWeight[] = [
     { factor_id: "season_goals", importance: "important" },
-    { factor_id: "xg_per_90", importance: "standard" },
+    { factor_id: "clean_sheets", importance: "standard" },
   ];
   const percentiles: FactorPercentile[] = [
     { factor_id: "season_goals", percentile: 0.7, has_data: true },
-    { factor_id: "xg_per_90", percentile: 0.5, has_data: false },
+    { factor_id: "clean_sheets", percentile: 0.5, has_data: false },
   ];
   const result = computePersonalRating(weights, percentiles);
   assert.equal(result.breakdown.length, 2);

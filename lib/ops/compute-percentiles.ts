@@ -93,25 +93,10 @@ function extract(row: PlayerRow, factor: FactorId, age: number | null): number |
     case "season_assists": return num(row.season_assists);
     case "goals_per_90": return num(row.goals_per_90);
     case "assists_per_90": return num(row.assists_per_90);
-    case "xg_per_90": return num(row.xg_per_90);
-    case "xag_per_90": return num(row.xag_per_90);
     case "minutes_played": return num(row.minutes_played);
     // Defensive
-    case "tackles_per_90": return perNinety(num(row.tackles), n90);
     case "tackles_won_per_90": return perNinety(num(row.tackles_won), n90);
     case "interceptions_per_90": return perNinety(num(row.interceptions), n90);
-    case "blocks_per_90": return perNinety(num(row.blocks), n90);
-    case "clearances_per_90": return perNinety(num(row.clearances), n90);
-    case "recoveries_per_90": return perNinety(num(row.recoveries), n90);
-    // Passing / creativity
-    case "key_passes_per_90": return perNinety(num(row.key_passes), n90);
-    case "progressive_passes_per_90":
-      return perNinety(num(row.progressive_passes), n90);
-    case "progressive_carries_per_90":
-      return perNinety(num(row.progressive_carries), n90);
-    case "pass_completion_pct": return num(row.pass_completion_pct);
-    case "xa_per_90": return perNinety(num(row.expected_assists), n90);
-    case "touches_per_90": return perNinety(num(row.touches), n90);
     // Goalkeeping
     case "saves_per_90": return perNinety(num(row.saves), n90);
     case "save_pct": return num(row.save_pct);

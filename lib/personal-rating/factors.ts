@@ -12,29 +12,23 @@
 
 import type { Bucket } from "@/lib/rating/buckets";
 
+// Factor IDs we actively surface. The SQL enum (rating_factor) still
+// contains entries for xG/xAG/tackles_total/blocks/clearances/recoveries/
+// key_passes/progressive_passes/progressive_carries/pass_completion_pct/
+// xa/touches — we don't include them here because the current FBref CSV
+// doesn't provide the underlying stats. If a richer CSV lands later,
+// re-add the entries below (and the corresponding cases in compute-
+// percentiles' extract()) — no schema migration needed.
 export type FactorId =
   | "season_goals"
   | "season_assists"
   | "goals_per_90"
   | "assists_per_90"
-  | "xg_per_90"
-  | "xag_per_90"
   | "minutes_played"
-  // Defensive (new in 015)
-  | "tackles_per_90"
+  // Defensive (only the two fields present in our current CSV's misc block)
   | "tackles_won_per_90"
   | "interceptions_per_90"
-  | "blocks_per_90"
-  | "clearances_per_90"
-  | "recoveries_per_90"
-  // Passing / creativity (new in 015)
-  | "key_passes_per_90"
-  | "progressive_passes_per_90"
-  | "progressive_carries_per_90"
-  | "pass_completion_pct"
-  | "xa_per_90"
-  | "touches_per_90"
-  // Goalkeeping (new in 015)
+  // Goalkeeping
   | "saves_per_90"
   | "save_pct"
   | "clean_sheets"
@@ -55,8 +49,6 @@ export type FactorId =
 export type FactorCategory =
   | "attacking"
   | "defensive"
-  | "passing"
-  | "possession"
   | "goalkeeping"
   | "playing_time"
   | "profile"
@@ -133,39 +125,11 @@ export const FACTORS: Record<FactorId, FactorDef> = {
     relevantBuckets: ["FB", "CM", "AM", "W", "MID"],
     sparse: true,
   },
-  xg_per_90: {
-    id: "xg_per_90",
-    label: "xG / 90",
-    description: "Expected goals per 90. Smoother signal than raw goals.",
-    category: "attacking",
-    direction: "higher_better",
-    relevantBuckets: ["AM", "W", "ST", "FWD"],
-    sparse: true,
-  },
-  xag_per_90: {
-    id: "xag_per_90",
-    label: "xAG / 90",
-    description: "Expected assisted goals per 90 — chance creation.",
-    category: "attacking",
-    direction: "higher_better",
-    relevantBuckets: ["CM", "AM", "W", "MID"],
-    sparse: true,
-  },
-
-  // -------- Defensive --------
-  tackles_per_90: {
-    id: "tackles_per_90",
-    label: "Tackles / 90",
-    description: "Total tackles per 90 minutes — defensive activity.",
-    category: "defensive",
-    direction: "higher_better",
-    relevantBuckets: ["CB", "FB", "DM", "CM", "DEF", "MID"],
-    sparse: true,
-  },
+  // -------- Defensive (only fields present in current CSV's misc block) --------
   tackles_won_per_90: {
     id: "tackles_won_per_90",
     label: "Tackles won / 90",
-    description: "Tackles successfully won — success rate matters.",
+    description: "Tackles successfully won per 90 minutes.",
     category: "defensive",
     direction: "higher_better",
     relevantBuckets: ["CB", "FB", "DM", "CM", "DEF", "MID"],
@@ -178,91 +142,6 @@ export const FACTORS: Record<FactorId, FactorDef> = {
     category: "defensive",
     direction: "higher_better",
     relevantBuckets: ["CB", "FB", "DM", "CM", "DEF", "MID"],
-    sparse: true,
-  },
-  blocks_per_90: {
-    id: "blocks_per_90",
-    label: "Blocks / 90",
-    description: "Shots + passes blocked.",
-    category: "defensive",
-    direction: "higher_better",
-    relevantBuckets: ["CB", "FB", "DM", "DEF"],
-    sparse: true,
-  },
-  clearances_per_90: {
-    id: "clearances_per_90",
-    label: "Clearances / 90",
-    description: "Defensive clearances — last-ditch and aerial.",
-    category: "defensive",
-    direction: "higher_better",
-    relevantBuckets: ["CB", "FB", "DEF"],
-    sparse: true,
-  },
-  recoveries_per_90: {
-    id: "recoveries_per_90",
-    label: "Ball recoveries / 90",
-    description: "Loose balls won back. High for energetic mids.",
-    category: "defensive",
-    direction: "higher_better",
-    relevantBuckets: ["DM", "CM", "AM", "MID"],
-    sparse: true,
-  },
-
-  // -------- Passing / creativity --------
-  key_passes_per_90: {
-    id: "key_passes_per_90",
-    label: "Key passes / 90",
-    description: "Passes that directly lead to a shot.",
-    category: "passing",
-    direction: "higher_better",
-    relevantBuckets: ["FB", "CM", "AM", "W", "MID"],
-    sparse: true,
-  },
-  progressive_passes_per_90: {
-    id: "progressive_passes_per_90",
-    label: "Progressive passes / 90",
-    description: "Passes that move the ball meaningfully upfield.",
-    category: "passing",
-    direction: "higher_better",
-    relevantBuckets: ["CB", "FB", "DM", "CM", "AM", "DEF", "MID"],
-    sparse: true,
-  },
-  progressive_carries_per_90: {
-    id: "progressive_carries_per_90",
-    label: "Progressive carries / 90",
-    description: "Carries that push the ball into dangerous areas.",
-    category: "passing",
-    direction: "higher_better",
-    relevantBuckets: ["FB", "CM", "AM", "W", "ST", "MID", "FWD"],
-    sparse: true,
-  },
-  pass_completion_pct: {
-    id: "pass_completion_pct",
-    label: "Pass completion %",
-    description: "Pass accuracy — ball-playing quality.",
-    category: "passing",
-    direction: "higher_better",
-    relevantBuckets: ["GK", "CB", "FB", "DM", "CM", "AM", "DEF", "MID"],
-    sparse: true,
-  },
-  xa_per_90: {
-    id: "xa_per_90",
-    label: "xA / 90",
-    description: "Expected assists from each pass — chance creation quality.",
-    category: "passing",
-    direction: "higher_better",
-    relevantBuckets: ["FB", "CM", "AM", "W", "MID"],
-    sparse: true,
-  },
-
-  // -------- Possession --------
-  touches_per_90: {
-    id: "touches_per_90",
-    label: "Touches / 90",
-    description: "Ball involvement. High for deep-lying playmakers.",
-    category: "possession",
-    direction: "higher_better",
-    relevantBuckets: ["CB", "FB", "DM", "CM", "AM", "DEF", "MID"],
     sparse: true,
   },
 
