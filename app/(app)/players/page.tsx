@@ -279,7 +279,14 @@ export default async function PlayersPage({
         </div>
       </div>
 
-      <form className="flex flex-wrap items-end gap-2 text-sm">
+      <form
+        // Remount the form whenever any URL param changes so the uncontrolled
+        // inputs re-read their defaultValue. Without this, Reset (which is a
+        // Next.js Link → client-side nav) doesn't visually clear the fields
+        // even though searchParams are now empty.
+        key={`${q ?? ""}|${posFilter ?? ""}|${country ?? ""}|${sortMode}|${interest ?? ""}|${ratedByFilter}|${viewMode}`}
+        className="flex flex-wrap items-end gap-2 text-sm"
+      >
         <label className="flex flex-col">
           <span className="text-xs text-muted-foreground mb-1">Search</span>
           <input
