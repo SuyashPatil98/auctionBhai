@@ -55,6 +55,7 @@ export const ingestionKindEnum = pgEnum("ingestion_kind", [
   "results",
   "lineups",
   "stats",
+  "recompute",
 ]);
 
 export const aiFeatureEnum = pgEnum("ai_feature", [

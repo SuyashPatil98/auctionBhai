@@ -2,7 +2,13 @@ import { db } from "@/lib/db";
 import { ingestionRuns } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
-type IngestionKind = "fixtures" | "squads" | "results" | "lineups" | "stats";
+type IngestionKind =
+  | "fixtures"
+  | "squads"
+  | "results"
+  | "lineups"
+  | "stats"
+  | "recompute";
 
 export type IngestionRunResult = {
   rowsChanged: number;
