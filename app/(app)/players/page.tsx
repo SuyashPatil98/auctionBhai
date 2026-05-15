@@ -7,6 +7,7 @@ import {
   personalRatings,
   playerPrices,
   playerRatings,
+  profiles,
   realPlayers,
 } from "@/lib/db/schema";
 import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
@@ -23,6 +24,8 @@ type SearchParams = Promise<{
   position?: string;
   country?: string;
   sort?: string;
+  interest?: string;
+  rated_by?: string;
 }>;
 
 const POSITIONS = ["GK", "DEF", "MID", "FWD"] as const;
@@ -33,7 +36,10 @@ export default async function PlayersPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const { q, position, country, sort } = await searchParams;
+  const { q, position, country, sort, interest, rated_by } = await searchParams;
+  const minInterest = Number.parseInt(interest ?? "", 10);
+  const minInterestSafe = Number.isFinite(minInterest) ? minInterest : 0;
+  const ratedByFilter = rated_by ?? "";
   const posFilter = POSITIONS.includes(position as Position)
     ? (position as Position)
     : null;
@@ -148,14 +154,35 @@ export default async function PlayersPage({
 
   // League member count for the "N/4" denominator.
   const [league] = await db.select().from(leagues).limit(1);
-  const memberCount = league
-    ? (
-        await db
-          .select({ n: sql<number>`count(*)::int` })
-          .from(leagueMembers)
-          .where(eq(leagueMembers.leagueId, league.id))
-      )[0].n
-    : 0;
+  const memberList = league
+    ? await db
+        .select({
+          id: leagueMembers.profileId,
+          order: leagueMembers.nominationOrder,
+          displayName: profiles.displayName,
+          teamEmoji: profiles.teamEmoji,
+        })
+        .from(leagueMembers)
+        .innerJoin(profiles, eq(profiles.id, leagueMembers.profileId))
+        .where(eq(leagueMembers.leagueId, league.id))
+        .orderBy(asc(leagueMembers.nominationOrder))
+    : [];
+  const memberCount = memberList.length;
+
+  // Apply the personal-scouting filters AFTER fetching (we need the
+  // per-player interest count derived from ratingsByPlayer):
+  //  - "Min interest" filters rows where N managers have rated >= threshold
+  //  - "Rated by" narrows to players a specific manager (or "me") rated
+  const filteredRows = rows.filter((r) => {
+    const playerPrs = ratingsByPlayer.get(r.id) ?? [];
+    if (minInterestSafe > 0 && playerPrs.length < minInterestSafe) return false;
+    if (ratedByFilter) {
+      const targetId = ratedByFilter === "me" ? myId : ratedByFilter;
+      if (!targetId) return true;
+      if (!playerPrs.some((pr) => pr.managerId === targetId)) return false;
+    }
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -163,8 +190,15 @@ export default async function PlayersPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Players</h1>
           <p className="text-sm text-muted-foreground">
-            {rows.length} {rows.length === 1 ? "player" : "players"}
-            {rows.length >= 500 ? " (showing first 500)" : ""}
+            {filteredRows.length}
+            {filteredRows.length !== rows.length && (
+              <span className="text-muted-foreground/70">
+                {" "}
+                of {rows.length}
+              </span>
+            )}{" "}
+            {filteredRows.length === 1 ? "player" : "players"}
+            {rows.length >= 500 ? " (server cap 500)" : ""}
             {" · sorted by "}
             {sortMode}
           </p>
@@ -225,6 +259,43 @@ export default async function PlayersPage({
             <option value="country">Country</option>
           </select>
         </label>
+        <label className="flex flex-col">
+          <span className="text-xs text-muted-foreground mb-1">
+            Min interest
+          </span>
+          <select
+            name="interest"
+            defaultValue={interest ?? "0"}
+            className="rounded-md border border-input bg-background px-3 py-1.5"
+            title="Filter to players rated by at least N managers"
+          >
+            <option value="0">Any</option>
+            <option value="1">≥ 1 manager</option>
+            <option value="2">≥ 2 managers</option>
+            <option value="3">≥ 3 managers</option>
+            <option value="4">All {memberCount}</option>
+          </select>
+        </label>
+        <label className="flex flex-col">
+          <span className="text-xs text-muted-foreground mb-1">Rated by</span>
+          <select
+            name="rated_by"
+            defaultValue={ratedByFilter}
+            className="rounded-md border border-input bg-background px-3 py-1.5"
+            title="Filter to players a specific manager has rated"
+          >
+            <option value="">Anyone</option>
+            {myId && (
+              <option value="me">Me</option>
+            )}
+            {memberList.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.teamEmoji ? `${m.teamEmoji} ` : ""}
+                {m.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           type="submit"
           className="rounded-md bg-primary text-primary-foreground px-3 py-1.5 text-sm font-medium hover:opacity-90 transition"
@@ -239,13 +310,11 @@ export default async function PlayersPage({
         </Link>
       </form>
 
-      {rows.length === 0 ? (
+      {filteredRows.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-          No players match. If the table is empty, run an ingest from{" "}
-          <Link href="/admin/ingest" className="underline">
-            /admin/ingest
-          </Link>
-          .
+          {rows.length === 0
+            ? "No players match the base filters. If the table is empty entirely, run an ingest from /admin."
+            : "No players match the scouting filters. Lower the Min interest or change Rated by."}
         </div>
       ) : (
         <div className="rounded-lg border border-border overflow-hidden">
@@ -273,7 +342,7 @@ export default async function PlayersPage({
               </tr>
             </thead>
             <tbody>
-              {rows.map((p) => {
+              {filteredRows.map((p) => {
                 const rating = p.rating !== null ? Number(p.rating) : null;
                 const playerPrs = ratingsByPlayer.get(p.id) ?? [];
                 const myPr = myId
