@@ -60,6 +60,39 @@ export const playerClubStats = pgTable(
     yellowCards: integer("yellow_cards"),
     redCards: integer("red_cards"),
 
+    // Defensive
+    tackles: integer("tackles"),
+    tacklesWon: integer("tackles_won"),
+    interceptions: integer("interceptions"),
+    blocks: integer("blocks"),
+    clearances: integer("clearances"),
+    errors: integer("errors"),
+    recoveries: integer("recoveries"),
+
+    // Passing / creativity
+    keyPasses: integer("key_passes"),
+    progressivePasses: integer("progressive_passes"),
+    progressiveCarries: integer("progressive_carries"),
+    passCompletionPct: numeric("pass_completion_pct", { precision: 5, scale: 2 }),
+    expectedAssists: numeric("expected_assists", { precision: 6, scale: 2 }),
+    passesIntoBox: integer("passes_into_box"),
+
+    // Possession
+    touches: integer("touches"),
+    carries: integer("carries"),
+    progressiveRuns: integer("progressive_runs"),
+    miscontrols: integer("miscontrols"),
+    dispossessed: integer("dispossessed"),
+
+    // Goalkeeping
+    goalsAgainst: integer("goals_against"),
+    saves: integer("saves"),
+    savePct: numeric("save_pct", { precision: 5, scale: 2 }),
+    cleanSheets: integer("clean_sheets"),
+    cleanSheetPct: numeric("clean_sheet_pct", { precision: 5, scale: 2 }),
+    penaltiesFaced: integer("penalties_faced"),
+    penaltySaves: integer("penalty_saves"),
+
     // Provenance
     matchConfidence: text("match_confidence"), // high|medium|low
     fbrefName: text("fbref_name"),

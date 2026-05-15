@@ -30,6 +30,24 @@ type PlayerRow = {
   xg_per_90: string | null;
   xag_per_90: string | null;
   minutes_played: number | null;
+  nineties: number | null;
+  tackles: number | null;
+  tackles_won: number | null;
+  interceptions: number | null;
+  blocks: number | null;
+  clearances: number | null;
+  recoveries: number | null;
+  key_passes: number | null;
+  progressive_passes: number | null;
+  progressive_carries: number | null;
+  pass_completion_pct: string | null;
+  expected_assists: string | null;
+  touches: number | null;
+  saves: number | null;
+  save_pct: string | null;
+  clean_sheets: number | null;
+  clean_sheet_pct: string | null;
+  goals_against: number | null;
   wc_goals: number | null;
   wc_assists: number | null;
   wc_appearances: number | null;
@@ -58,7 +76,18 @@ function num(v: string | number | null | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Per-90 calculation guarded by minimum sample size — players with < 4
+ * full 90s of action get NULL because per-90 stats from tiny samples are
+ * noise rather than signal.
+ */
+function perNinety(total: number | null, nineties: number | null): number | null {
+  if (total === null || nineties === null || nineties < 4) return null;
+  return total / nineties;
+}
+
 function extract(row: PlayerRow, factor: FactorId, age: number | null): number | null {
+  const n90 = num(row.nineties);
   switch (factor) {
     case "season_goals": return num(row.season_goals);
     case "season_assists": return num(row.season_assists);
@@ -67,6 +96,29 @@ function extract(row: PlayerRow, factor: FactorId, age: number | null): number |
     case "xg_per_90": return num(row.xg_per_90);
     case "xag_per_90": return num(row.xag_per_90);
     case "minutes_played": return num(row.minutes_played);
+    // Defensive
+    case "tackles_per_90": return perNinety(num(row.tackles), n90);
+    case "tackles_won_per_90": return perNinety(num(row.tackles_won), n90);
+    case "interceptions_per_90": return perNinety(num(row.interceptions), n90);
+    case "blocks_per_90": return perNinety(num(row.blocks), n90);
+    case "clearances_per_90": return perNinety(num(row.clearances), n90);
+    case "recoveries_per_90": return perNinety(num(row.recoveries), n90);
+    // Passing / creativity
+    case "key_passes_per_90": return perNinety(num(row.key_passes), n90);
+    case "progressive_passes_per_90":
+      return perNinety(num(row.progressive_passes), n90);
+    case "progressive_carries_per_90":
+      return perNinety(num(row.progressive_carries), n90);
+    case "pass_completion_pct": return num(row.pass_completion_pct);
+    case "xa_per_90": return perNinety(num(row.expected_assists), n90);
+    case "touches_per_90": return perNinety(num(row.touches), n90);
+    // Goalkeeping
+    case "saves_per_90": return perNinety(num(row.saves), n90);
+    case "save_pct": return num(row.save_pct);
+    case "clean_sheets": return num(row.clean_sheets);
+    case "clean_sheet_pct": return num(row.clean_sheet_pct);
+    case "goals_conceded_per_90":
+      return perNinety(num(row.goals_against), n90);
     case "age": return age;
     case "market_value_eur": return num(row.market_value_eur);
     case "international_caps": return num(row.international_caps);
@@ -110,6 +162,25 @@ export async function runComputePercentiles(): Promise<ComputePercentilesResult>
         pcs.xg_per_90,
         pcs.xag_per_90,
         pcs.minutes as minutes_played,
+        -- Convert minutes to "90s" played for per-90 calculations.
+        (pcs.minutes::numeric / 90.0) as nineties,
+        pcs.tackles,
+        pcs.tackles_won,
+        pcs.interceptions,
+        pcs.blocks,
+        pcs.clearances,
+        pcs.recoveries,
+        pcs.key_passes,
+        pcs.progressive_passes,
+        pcs.progressive_carries,
+        pcs.pass_completion_pct,
+        pcs.expected_assists,
+        pcs.touches,
+        pcs.saves,
+        pcs.save_pct,
+        pcs.clean_sheets,
+        pcs.clean_sheet_pct,
+        pcs.goals_against,
         wp.wc_goals,
         wp.wc_assists,
         wp.wc_appearances,
@@ -125,8 +196,7 @@ export async function runComputePercentiles(): Promise<ComputePercentilesResult>
         limit 1
       ) tm on true
       left join lateral (
-        select pcs2.goals, pcs2.assists, pcs2.goals_per_90, pcs2.assists_per_90,
-               pcs2.xg_per_90, pcs2.xag_per_90, pcs2.minutes
+        select pcs2.*
         from player_club_stats pcs2
         where pcs2.real_player_id = rp.id
         order by pcs2.season desc, pcs2.minutes desc nulls last

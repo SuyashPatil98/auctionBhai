@@ -163,11 +163,16 @@ async function main() {
       const nineties = toFloatOrNull(fbrefRow["90s"]) ?? 0;
       const goals = toIntOrNull(fbrefRow["Gls"]);
       const assists = toIntOrNull(fbrefRow["Ast"]);
+      const xg = toFloatOrNull(fbrefRow["xG"]);
+      const xag = toFloatOrNull(fbrefRow["xAG"]);
+      const npxg = toFloatOrNull(fbrefRow["npxG"]);
 
       const goalsPer90 =
         goals !== null && nineties > 0 ? goals / nineties : null;
       const assistsPer90 =
         assists !== null && nineties > 0 ? assists / nineties : null;
+      const xgPer90 = xg !== null && nineties > 0 ? xg / nineties : null;
+      const xagPer90 = xag !== null && nineties > 0 ? xag / nineties : null;
 
       // Pack the misc + GK + shooting + playing-time stats into raw so
       // the UI can read them by position without exploding our schema.
@@ -228,15 +233,50 @@ async function main() {
         nonPenaltyGoals: toIntOrNull(fbrefRow["G-PK"]),
         penalties: toIntOrNull(fbrefRow["PK"]),
         penaltyAttempts: toIntOrNull(fbrefRow["PKatt"]),
-        xg: null,
-        xag: null,
-        npxg: null,
+        xg: toFixed2OrNull(xg),
+        xag: toFixed2OrNull(xag),
+        npxg: toFixed2OrNull(npxg),
         goalsPer90: toFixed2OrNull(goalsPer90),
         assistsPer90: toFixed2OrNull(assistsPer90),
-        xgPer90: null,
-        xagPer90: null,
+        xgPer90: toFixed2OrNull(xgPer90),
+        xagPer90: toFixed2OrNull(xagPer90),
         yellowCards: toIntOrNull(fbrefRow["CrdY"]),
         redCards: toIntOrNull(fbrefRow["CrdR"]),
+        // Defensive
+        tackles: toIntOrNull(fbrefRow["Tkl"]),
+        tacklesWon: toIntOrNull(fbrefRow["TklW"]),
+        interceptions: toIntOrNull(fbrefRow["Int"]),
+        blocks: toIntOrNull(fbrefRow["Blocks"]),
+        clearances: toIntOrNull(fbrefRow["Clr"]),
+        errors: toIntOrNull(fbrefRow["Err"]),
+        recoveries: toIntOrNull(fbrefRow["Recov"]),
+        // Passing / creativity. Hubertsidorowicz uses a suffixed column
+        // name for pass completion to disambiguate from other Cmp% fields.
+        keyPasses: toIntOrNull(fbrefRow["KP"]),
+        progressivePasses: toIntOrNull(fbrefRow["PrgP"]),
+        progressiveCarries: toIntOrNull(fbrefRow["PrgC"]),
+        passCompletionPct: toFixed2OrNull(
+          toFloatOrNull(
+            fbrefRow["Cmp%_stats_passing"] ?? fbrefRow["Cmp%"] ?? null
+          )
+        ),
+        expectedAssists: toFixed2OrNull(toFloatOrNull(fbrefRow["xA"])),
+        passesIntoBox: toIntOrNull(fbrefRow["PPA"]),
+        // Possession
+        touches: toIntOrNull(fbrefRow["Touches"]),
+        carries: toIntOrNull(fbrefRow["Carries"]),
+        progressiveRuns: toIntOrNull(fbrefRow["PrgR"]),
+        miscontrols: toIntOrNull(fbrefRow["Mis"]),
+        dispossessed: toIntOrNull(fbrefRow["Dis"]),
+        // Goalkeeping
+        goalsAgainst: toIntOrNull(fbrefRow["GA"]),
+        saves: toIntOrNull(fbrefRow["Saves"]),
+        savePct: toFixed2OrNull(toFloatOrNull(fbrefRow["Save%"])),
+        cleanSheets: toIntOrNull(fbrefRow["CS"]),
+        cleanSheetPct: toFixed2OrNull(toFloatOrNull(fbrefRow["CS%"])),
+        penaltiesFaced: toIntOrNull(fbrefRow["PKA"]),
+        penaltySaves: toIntOrNull(fbrefRow["PKsv"]),
+        // Provenance
         matchConfidence,
         fbrefName: fbrefRow["Player"]?.trim() ?? null,
         raw,

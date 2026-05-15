@@ -37,6 +37,24 @@ export const ratingFactorEnum = pgEnum("rating_factor", [
   "wc_appearances",
   "wc_tournaments",
   "empirical_rating",
+  // Added in migration 015
+  "tackles_per_90",
+  "tackles_won_per_90",
+  "interceptions_per_90",
+  "blocks_per_90",
+  "clearances_per_90",
+  "recoveries_per_90",
+  "key_passes_per_90",
+  "progressive_passes_per_90",
+  "progressive_carries_per_90",
+  "pass_completion_pct",
+  "xa_per_90",
+  "touches_per_90",
+  "saves_per_90",
+  "save_pct",
+  "clean_sheets",
+  "clean_sheet_pct",
+  "goals_conceded_per_90",
 ]);
 
 export const factorImportanceEnum = pgEnum("factor_importance", [
