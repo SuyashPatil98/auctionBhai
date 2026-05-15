@@ -25,7 +25,8 @@
     "compute:prices": "tsx scripts/compute-prices.ts",
     "migrate:db": "tsx scripts/migrate-to-new-db.ts",
     "import:wc": "tsx scripts/import-wc-pedigree.ts",
-    "compute:percentiles": "tsx scripts/compute-percentiles.ts"
+    "compute:percentiles": "tsx scripts/compute-percentiles.ts",
+    "test:rating": "tsx scripts/test-personal-rating.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
