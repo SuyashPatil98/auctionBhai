@@ -22,6 +22,7 @@
     "seed:league": "tsx scripts/seed-league.ts",
     "purge:users": "tsx scripts/purge-users.ts",
     "remove:member": "tsx scripts/remove-member.ts",
+    "backfill:photos": "tsx scripts/backfill-photos.ts",
     "sim:bracket": "tsx scripts/simulate-bracket.ts",
     "compute:prices": "tsx scripts/compute-prices.ts",
     "migrate:db": "tsx scripts/migrate-to-new-db.ts",

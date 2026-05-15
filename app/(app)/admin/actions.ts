@@ -4,15 +4,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { withIngestionRun } from "@/lib/ingest/run";
+import {
+  ingestFixtures,
+  ingestTournament,
+} from "@/lib/ingest/football-data";
 import { runComputePercentiles } from "@/lib/ops/compute-percentiles";
 import { runComputePrices } from "@/lib/ops/compute-prices";
 import { runSimulateBracket } from "@/lib/ops/simulate-bracket";
-
-// ============================================================================
-// Auth gate — only allowlisted emails can hit /admin actions. (We use the
-// same gate as the rest of the app; the league has 4 friends, anyone in the
-// league can recompute.)
-// ============================================================================
 
 async function requireAuthed(): Promise<void> {
   const supabase = await createClient();
@@ -23,108 +21,133 @@ async function requireAuthed(): Promise<void> {
 }
 
 // ============================================================================
-// Recompute actions
+// One-button refresh
 //
-// All three are "fast" (<10s under normal conditions), so they fit inside
-// Vercel's serverless timeout. Each is wrapped in withIngestionRun so the
-// /admin recent-runs feed shows the result + duration + any error.
+// Chains every fast op in dependency order:
+//   1. Tournament ingest        (1 API call, ~1s)
+//   2. Fixtures ingest          (1 API call, ~2s)
+//   3. Bracket Monte Carlo      (10k sims, ~1s)
+//   4. Recompute prices         (~3s)
+//   5. Recompute percentiles    (~5s)
+//
+// Total: ~12s. Within Vercel hobby's 10s/60s timeouts (hobby is 10s
+// max, paid is 60s — squeaks under on paid, may time out on hobby for
+// a slow DB roundtrip).
+//
+// NOT done here (would time out):
+//   - Countries + squads ingest (5 min, rate-limited)
+//   - Full compute:ratings (30s+ with engine layers)
+//   - Transfermarkt / FBref / WC pedigree ingest (CSV-based, local-only)
+// Those stay CLI — see CLAUDE.md.
+//
+// Returns structured result so the client can show "47 new rows" etc.
 // ============================================================================
 
-export async function refreshPercentiles() {
-  await requireAuthed();
+export type StepResult = {
+  name: string;
+  ok: boolean;
+  rowsChanged: number | null;
+  notes: string | null;
+  durationMs: number;
+  error?: string;
+};
+
+export type RefreshResult = {
+  steps: StepResult[];
+  totalMs: number;
+  totalRowsChanged: number;
+};
+
+async function timed<T extends { rowsChanged: number; notes?: string }>(
+  name: string,
+  fn: () => Promise<T>
+): Promise<StepResult> {
+  const t0 = Date.now();
   try {
-    await withIngestionRun("compute:percentiles", "recompute", async () => {
-      const r = await runComputePercentiles();
-      return {
-        rowsChanged: r.rowsWritten,
-        notes: `${r.playersProcessed} players × ${r.factorsComputed} factors`,
-      };
-    });
+    const r = await fn();
+    return {
+      name,
+      ok: true,
+      rowsChanged: r.rowsChanged,
+      notes: r.notes ?? null,
+      durationMs: Date.now() - t0,
+    };
   } catch (err) {
-    console.error("[admin:refreshPercentiles]", err);
-    // Error is also persisted to ingestion_runs.
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[admin:refresh:${name}]`, err);
+    return {
+      name,
+      ok: false,
+      rowsChanged: null,
+      notes: null,
+      durationMs: Date.now() - t0,
+      error: msg,
+    };
   }
-  revalidatePath("/admin");
-  revalidatePath("/players");
 }
 
-export async function refreshPrices() {
+export async function refreshAll(): Promise<RefreshResult> {
   await requireAuthed();
-  try {
-    await withIngestionRun("compute:prices", "recompute", async () => {
-      const r = await runComputePrices();
-      return {
-        rowsChanged: r.rowsWritten,
-        notes: `${r.eligible} eligible · top: ${r.topByPrice[0]?.displayName} ${r.topByPrice[0]?.price}cr`,
-      };
-    });
-  } catch (err) {
-    console.error("[admin:refreshPrices]", err);
-  }
-  revalidatePath("/admin");
-  revalidatePath("/players");
-}
+  const t0 = Date.now();
 
-export async function refreshBracket() {
-  await requireAuthed();
-  try {
-    await withIngestionRun("sim:bracket", "recompute", async () => {
-      const r = await runSimulateBracket();
-      const champ = r.top10[0];
-      return {
-        rowsChanged: r.teamsCount,
-        notes: `${r.sims} sims · favorite: ${champ?.name} (${champ?.championPct.toFixed(1)}% champ)`,
-      };
-    });
-  } catch (err) {
-    console.error("[admin:refreshBracket]", err);
-  }
-  revalidatePath("/admin");
-  revalidatePath("/players");
-}
+  const steps: StepResult[] = [];
 
-/**
- * Convenience: chain the derived-data recomputes in correct dependency
- * order. Bracket writes country.expected_matches; prices reads them; both
- * affect what's relevant for percentiles. Roughly 8-12s under load — within
- * the serverless timeout but at the upper end.
- */
-export async function refreshDerivedAll() {
-  await requireAuthed();
-  try {
-    await withIngestionRun("sim:bracket", "recompute", async () => {
-      const r = await runSimulateBracket();
-      const champ = r.top10[0];
-      return {
-        rowsChanged: r.teamsCount,
-        notes: `${r.sims} sims · favorite: ${champ?.name} (${champ?.championPct.toFixed(1)}% champ)`,
-      };
-    });
-  } catch (err) {
-    console.error("[admin:refreshDerivedAll:bracket]", err);
-  }
-  try {
-    await withIngestionRun("compute:prices", "recompute", async () => {
-      const r = await runComputePrices();
-      return {
-        rowsChanged: r.rowsWritten,
-        notes: `${r.eligible} eligible · top: ${r.topByPrice[0]?.displayName} ${r.topByPrice[0]?.price}cr`,
-      };
-    });
-  } catch (err) {
-    console.error("[admin:refreshDerivedAll:prices]", err);
-  }
-  try {
-    await withIngestionRun("compute:percentiles", "recompute", async () => {
-      const r = await runComputePercentiles();
-      return {
-        rowsChanged: r.rowsWritten,
-        notes: `${r.playersProcessed} players × ${r.factorsComputed} factors`,
-      };
-    });
-  } catch (err) {
-    console.error("[admin:refreshDerivedAll:percentiles]", err);
-  }
+  // ingestTournament/ingestFixtures wrap themselves in withIngestionRun.
+  steps.push(await timed("Tournament metadata", () => ingestTournament()));
+  steps.push(await timed("Fixtures", () => ingestFixtures()));
+
+  steps.push(
+    await timed("Bracket simulation", () =>
+      withIngestionRun("sim:bracket", "recompute", async () => {
+        const r = await runSimulateBracket();
+        const champ = r.top10[0];
+        return {
+          rowsChanged: r.teamsCount,
+          notes: champ
+            ? `${r.sims} sims · favorite: ${champ.name} (${champ.championPct.toFixed(1)}% champ)`
+            : `${r.sims} sims`,
+        };
+      })
+    )
+  );
+
+  steps.push(
+    await timed("Player prices", () =>
+      withIngestionRun("compute:prices", "recompute", async () => {
+        const r = await runComputePrices();
+        return {
+          rowsChanged: r.rowsWritten,
+          notes: r.topByPrice[0]
+            ? `top: ${r.topByPrice[0].displayName} ${r.topByPrice[0].price}cr`
+            : `${r.eligible} eligible`,
+        };
+      })
+    )
+  );
+
+  steps.push(
+    await timed("Factor percentiles", () =>
+      withIngestionRun("compute:percentiles", "recompute", async () => {
+        const r = await runComputePercentiles();
+        return {
+          rowsChanged: r.rowsWritten,
+          notes: `${r.playersProcessed} players × ${r.factorsComputed} factors`,
+        };
+      })
+    )
+  );
+
   revalidatePath("/admin");
   revalidatePath("/players");
+  revalidatePath("/team");
+  revalidatePath("/dashboard");
+
+  return {
+    steps,
+    totalMs: Date.now() - t0,
+    totalRowsChanged: steps.reduce(
+      (a, s) => a + (s.rowsChanged ?? 0),
+      0
+    ),
+  };
 }
