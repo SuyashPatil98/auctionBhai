@@ -24,7 +24,8 @@
     "sim:bracket": "tsx scripts/simulate-bracket.ts",
     "compute:prices": "tsx scripts/compute-prices.ts",
     "migrate:db": "tsx scripts/migrate-to-new-db.ts",
-    "import:wc": "tsx scripts/import-wc-pedigree.ts"
+    "import:wc": "tsx scripts/import-wc-pedigree.ts",
+    "compute:percentiles": "tsx scripts/compute-percentiles.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

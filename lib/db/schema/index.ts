@@ -10,3 +10,4 @@ export * from "./rating";
 export * from "./club_stats";
 export * from "./auction";
 export * from "./wc_pedigree";
+export * from "./personal_rating";
