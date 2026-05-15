@@ -7,12 +7,7 @@ import {
   tournaments,
 } from "@/lib/db/schema";
 import { count, desc } from "drizzle-orm";
-import {
-  runAllIngests,
-  runCountriesAndSquadsIngest,
-  runFixturesIngest,
-  runTournamentIngest,
-} from "./actions";
+import { runFixturesIngest, runTournamentIngest } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -58,29 +53,40 @@ export default async function IngestAdminPage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
-          Run
+          Run (fast — safe on Vercel)
         </h2>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2">
           <IngestButton
             action={runTournamentIngest}
             label="Tournament"
-            hint="WC 2026 metadata"
-          />
-          <IngestButton
-            action={runCountriesAndSquadsIngest}
-            label="Countries + Squads"
-            hint="48 nations + rosters"
+            hint="WC 2026 metadata · 1 API call · ~1s"
           />
           <IngestButton
             action={runFixturesIngest}
             label="Fixtures"
-            hint="104 matches"
+            hint="All 104 matches · 1 API call · ~2s"
           />
-          <IngestButton
-            action={runAllIngests}
-            label="Run all"
-            hint="In order"
-            primary
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
+          CLI only — too slow for serverless
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          football-data.org rate-limits at 10 req/min, so pulling 48 country
+          squads takes ~5 min — well past Vercel&apos;s 10s timeout. If you
+          click these on Vercel, the function dies but your browser stays
+          stuck waiting. Run from your dev box instead.
+        </p>
+        <div className="rounded-lg border border-border bg-card divide-y divide-border">
+          <CliRow
+            cmd="pnpm ingest"
+            desc="Full ingest in order: tournament + countries + squads + fixtures (~5 min)."
+          />
+          <CliRow
+            cmd="pnpm tsx scripts/ingest.ts countries"
+            desc="Countries + squads only (~5 min)."
           />
         </div>
       </section>
@@ -143,6 +149,17 @@ function Stat({ label, value }: { label: string; value: number }) {
         {label}
       </p>
       <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function CliRow({ cmd, desc }: { cmd: string; desc: string }) {
+  return (
+    <div className="flex items-center gap-4 px-4 py-3">
+      <code className="rounded bg-muted px-2 py-1 text-xs font-mono whitespace-nowrap">
+        {cmd}
+      </code>
+      <p className="text-xs text-muted-foreground">{desc}</p>
     </div>
   );
 }
