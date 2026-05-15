@@ -11,6 +11,7 @@ import {
   leagues,
   managerBudgets,
   playerPrices,
+  playerRatings,
   profiles,
   proxyBids,
   realPlayers,
@@ -116,11 +117,18 @@ export default async function DraftPage({
         lot: auctionLots,
         playerName: realPlayers.displayName,
         position: realPlayers.position,
+        club: realPlayers.club,
+        photoUrl: realPlayers.photoUrl,
         countryName: countries.name,
+        countryCode: countries.code,
+        flagUrl: countries.flagUrl,
+        price: playerPrices.price,
+        tier: playerPrices.tier,
       })
       .from(auctionLots)
       .innerJoin(realPlayers, eq(realPlayers.id, auctionLots.realPlayerId))
       .innerJoin(countries, eq(countries.id, realPlayers.countryId))
+      .leftJoin(playerPrices, eq(playerPrices.realPlayerId, realPlayers.id))
       .where(eq(auctionLots.id, d.currentLotId))
       .limit(1);
     if (row) {
@@ -131,6 +139,13 @@ export default async function DraftPage({
             .where(eq(profiles.id, row.lot.currentBidderId))
             .limit(1)
         : [];
+      // Latest rating for the player on the block (used for the hero card).
+      const [latest] = await db
+        .select({ rating: playerRatings.rating })
+        .from(playerRatings)
+        .where(eq(playerRatings.realPlayerId, row.lot.realPlayerId))
+        .orderBy(desc(playerRatings.asOf))
+        .limit(1);
       currentLot = {
         id: row.lot.id,
         lotNumber: row.lot.lotNumber,
@@ -142,7 +157,14 @@ export default async function DraftPage({
         closesAt: row.lot.closesAt ? row.lot.closesAt.toISOString() : null,
         playerName: row.playerName,
         position: row.position,
+        club: row.club,
+        photoUrl: row.photoUrl,
         countryName: row.countryName,
+        countryCode: row.countryCode,
+        flagUrl: row.flagUrl,
+        price: row.price,
+        tier: row.tier,
+        rating: latest?.rating ? Number(latest.rating) : null,
         bidderName: bidder?.displayName ?? null,
       };
     }

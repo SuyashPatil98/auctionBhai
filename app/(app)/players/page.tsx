@@ -12,6 +12,7 @@ import {
 } from "@/lib/db/schema";
 import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { createClient } from "@/lib/supabase/server";
+import { PlayerCard } from "@/components/PlayerCard";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,7 @@ type SearchParams = Promise<{
   sort?: string;
   interest?: string;
   rated_by?: string;
+  view?: string;
 }>;
 
 const POSITIONS = ["GK", "DEF", "MID", "FWD"] as const;
@@ -36,10 +38,11 @@ export default async function PlayersPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const { q, position, country, sort, interest, rated_by } = await searchParams;
+  const { q, position, country, sort, interest, rated_by, view } = await searchParams;
   const minInterest = Number.parseInt(interest ?? "", 10);
   const minInterestSafe = Number.isFinite(minInterest) ? minInterest : 0;
   const ratedByFilter = rated_by ?? "";
+  const viewMode: "table" | "cards" = view === "cards" ? "cards" : "table";
   const posFilter = POSITIONS.includes(position as Position)
     ? (position as Position)
     : null;
@@ -95,6 +98,8 @@ export default async function PlayersPage({
       displayName: realPlayers.displayName,
       position: realPlayers.position,
       shirtNumber: realPlayers.shirtNumber,
+      club: realPlayers.club,
+      photoUrl: realPlayers.photoUrl,
       countryCode: countries.code,
       countryName: countries.name,
       flagUrl: countries.flagUrl,
@@ -308,6 +313,44 @@ export default async function PlayersPage({
         >
           Reset
         </Link>
+        <div className="ml-auto inline-flex rounded-md border border-border overflow-hidden text-xs">
+          <Link
+            href={`?${new URLSearchParams({
+              ...(q ? { q } : {}),
+              ...(posFilter ? { position: posFilter } : {}),
+              ...(country ? { country } : {}),
+              ...(sort ? { sort } : {}),
+              ...(interest ? { interest } : {}),
+              ...(rated_by ? { rated_by } : {}),
+              view: "table",
+            }).toString()}`}
+            className={`px-3 py-1.5 transition ${
+              viewMode === "table"
+                ? "bg-foreground text-background"
+                : "bg-background hover:bg-muted text-muted-foreground"
+            }`}
+          >
+            Table
+          </Link>
+          <Link
+            href={`?${new URLSearchParams({
+              ...(q ? { q } : {}),
+              ...(posFilter ? { position: posFilter } : {}),
+              ...(country ? { country } : {}),
+              ...(sort ? { sort } : {}),
+              ...(interest ? { interest } : {}),
+              ...(rated_by ? { rated_by } : {}),
+              view: "cards",
+            }).toString()}`}
+            className={`px-3 py-1.5 transition ${
+              viewMode === "cards"
+                ? "bg-foreground text-background"
+                : "bg-background hover:bg-muted text-muted-foreground"
+            }`}
+          >
+            Cards
+          </Link>
+        </div>
       </form>
 
       {filteredRows.length === 0 ? (
@@ -315,6 +358,34 @@ export default async function PlayersPage({
           {rows.length === 0
             ? "No players match the base filters. If the table is empty entirely, run an ingest from /admin."
             : "No players match the scouting filters. Lower the Min interest or change Rated by."}
+        </div>
+      ) : viewMode === "cards" ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+          {filteredRows.slice(0, 100).map((p) => (
+            <PlayerCard
+              key={p.id}
+              variant="grid"
+              player={{
+                id: p.id,
+                displayName: p.displayName,
+                position: p.position as "GK" | "DEF" | "MID" | "FWD",
+                rating: p.rating !== null ? Number(p.rating) : null,
+                price: p.price,
+                tier: p.tier,
+                countryName: p.countryName,
+                countryCode: p.countryCode,
+                flagUrl: p.flagUrl,
+                club: p.club,
+                photoUrl: p.photoUrl,
+              }}
+            />
+          ))}
+          {filteredRows.length > 100 && (
+            <div className="col-span-full text-center text-xs text-muted-foreground py-4">
+              Showing 100 of {filteredRows.length}. Filter further or switch
+              to Table view to see all.
+            </div>
+          )}
         </div>
       ) : (
         <div className="rounded-lg border border-border overflow-hidden">

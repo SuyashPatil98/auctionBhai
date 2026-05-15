@@ -15,6 +15,7 @@ import {
   rosters,
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
+import { PlayerCard } from "@/components/PlayerCard";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +102,7 @@ export default async function TeamPage({
       position: realPlayers.position,
       shirtNumber: realPlayers.shirtNumber,
       club: realPlayers.club,
+      photoUrl: realPlayers.photoUrl,
       countryCode: countries.code,
       countryName: countries.name,
       flagUrl: countries.flagUrl,
@@ -274,11 +276,11 @@ export default async function TeamPage({
         })}
       </section>
 
-      {/* Squad rows grouped by position */}
+      {/* Squad grouped by position — FIFA card grid */}
       {squad.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
           {isMe
-            ? "You haven't won any players yet. Squad will populate as you win bids in the draft."
+            ? "You haven't won any players yet. Your squad will populate as you win bids in the draft."
             : "This manager hasn't won any players yet."}
         </div>
       ) : (
@@ -287,89 +289,37 @@ export default async function TeamPage({
             const players = byPosition.get(pos) ?? [];
             if (players.length === 0) return null;
             return (
-              <section key={pos} className="space-y-2">
+              <section key={pos} className="space-y-3">
                 <h2 className="text-xs uppercase tracking-widest text-muted-foreground">
-                  {POSITION_LABEL[pos]} · {players.length}/{reqs[pos] ?? 0}
+                  {POSITION_LABEL[pos]} ·{" "}
+                  <span className="text-foreground">{players.length}</span>
+                  <span className="text-muted-foreground/70">
+                    /{reqs[pos] ?? 0}
+                  </span>
                 </h2>
-                <div className="rounded-lg border border-border overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
-                      <tr>
-                        <th className="text-left px-3 py-2">Player</th>
-                        <th className="text-left px-3 py-2">Country</th>
-                        <th className="text-right px-3 py-2 w-20">Paid</th>
-                        <th className="text-right px-3 py-2 w-20">Price now</th>
-                        <th className="text-right px-3 py-2 w-20">Rating</th>
-                        <th className="text-left px-3 py-2 w-24">Acquired</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {players.map((p) => {
-                        const rating = ratingByPlayer.get(p.realPlayerId);
-                        const paidVsNow =
-                          p.acquiredAmount !== null && p.price !== null
-                            ? p.acquiredAmount - p.price
-                            : null;
-                        return (
-                          <tr
-                            key={p.realPlayerId}
-                            className="border-t border-border hover:bg-muted/30"
-                          >
-                            <td className="px-3 py-2 font-medium">
-                              <Link
-                                href={`/players/${p.realPlayerId}`}
-                                className="hover:underline"
-                              >
-                                {p.displayName}
-                              </Link>
-                              {p.club && (
-                                <span className="block text-xs text-muted-foreground">
-                                  {p.club}
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2 text-muted-foreground">
-                              {p.flagUrl && (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
-                                  src={p.flagUrl}
-                                  alt=""
-                                  className="inline-block w-4 h-4 mr-1 align-text-bottom"
-                                />
-                              )}
-                              {p.countryName}
-                            </td>
-                            <td className="px-3 py-2 text-right tabular-nums">
-                              <span className="font-semibold">
-                                {p.acquiredAmount ?? "—"}
-                              </span>
-                              {p.acquiredVia !== "auction" && (
-                                <span className="ml-1 text-[10px] uppercase text-muted-foreground">
-                                  {p.acquiredVia}
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2 text-right tabular-nums">
-                              <span className="text-muted-foreground">
-                                {p.price ?? "—"}
-                              </span>
-                              {paidVsNow !== null && paidVsNow !== 0 && (
-                                <ValueDelta delta={-paidVsNow} />
-                              )}
-                            </td>
-                            <td className="px-3 py-2 text-right tabular-nums">
-                              {rating !== undefined
-                                ? rating.toFixed(1)
-                                : "—"}
-                            </td>
-                            <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
-                              {p.acquiredAt.toLocaleDateString()}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                  {players.map((p) => (
+                    <PlayerCard
+                      key={p.realPlayerId}
+                      variant="grid"
+                      player={{
+                        id: p.realPlayerId,
+                        displayName: p.displayName,
+                        position: p.position as "GK" | "DEF" | "MID" | "FWD",
+                        rating:
+                          ratingByPlayer.get(p.realPlayerId) ?? null,
+                        // Show what they paid rather than current price on the team page
+                        // — owned players don't care about price drift.
+                        price: p.acquiredAmount,
+                        tier: p.tier,
+                        countryName: p.countryName,
+                        countryCode: p.countryCode,
+                        flagUrl: p.flagUrl,
+                        club: p.club,
+                        photoUrl: p.photoUrl,
+                      }}
+                    />
+                  ))}
                 </div>
               </section>
             );
@@ -427,22 +377,6 @@ function ManagerSwitcher({
         );
       })}
     </nav>
-  );
-}
-
-function ValueDelta({ delta }: { delta: number }) {
-  // delta > 0 means current price > paid (you bought a bargain)
-  const tone =
-    delta > 5
-      ? "text-emerald-600 dark:text-emerald-400"
-      : delta < -5
-      ? "text-rose-600 dark:text-rose-400"
-      : "text-muted-foreground";
-  return (
-    <span className={`ml-1 text-[10px] tabular-nums ${tone}`}>
-      {delta >= 0 ? "+" : ""}
-      {delta}
-    </span>
   );
 }
 

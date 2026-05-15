@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { PlayerCard } from "@/components/PlayerCard";
 import {
   nominate,
   passLot,
@@ -42,7 +43,14 @@ export type CurrentLot = {
   closesAt: string | null; // ISO
   playerName: string;
   position: string;
+  club: string | null;
+  photoUrl: string | null;
   countryName: string;
+  countryCode: string | null;
+  flagUrl: string | null;
+  price: number | null;
+  tier: string | null;
+  rating: number | null;
   bidderName: string | null;
 } | null;
 
@@ -348,27 +356,64 @@ export default function AuctionRoom(props: AuctionRoomProps) {
               />
             )}
 
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-2xl font-bold">
-                  {props.currentLot.playerName}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {props.currentLot.position} · {props.currentLot.countryName}
-                </p>
+            <div className="grid grid-cols-[auto_1fr] gap-5 items-start">
+              {/* Hero card on the left */}
+              <div className="w-44 shrink-0">
+                <PlayerCard
+                  variant="grid"
+                  player={{
+                    id: props.currentLot.realPlayerId,
+                    displayName: props.currentLot.playerName,
+                    position: props.currentLot.position as
+                      | "GK"
+                      | "DEF"
+                      | "MID"
+                      | "FWD",
+                    rating: props.currentLot.rating,
+                    price: props.currentLot.price,
+                    tier: props.currentLot.tier,
+                    countryName: props.currentLot.countryName,
+                    countryCode: props.currentLot.countryCode,
+                    flagUrl: props.currentLot.flagUrl,
+                    club: props.currentLot.club,
+                    photoUrl: props.currentLot.photoUrl,
+                  }}
+                />
               </div>
-              <div className="text-right">
-                <p className="text-xs uppercase tracking-widest text-muted-foreground">
-                  Current bid
-                </p>
-                <p className="text-4xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
-                  {props.currentLot.currentBid}
-                </p>
-                {props.currentLot.bidderName && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    by {props.currentLot.bidderName}
+
+              {/* Bid info on the right */}
+              <div className="space-y-3 min-w-0">
+                <div>
+                  <p className="text-3xl font-bold leading-tight">
+                    {props.currentLot.playerName}
                   </p>
-                )}
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {props.currentLot.position} · {props.currentLot.countryName}
+                    {props.currentLot.club && (
+                      <> · <span className="opacity-80">{props.currentLot.club}</span></>
+                    )}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
+                  <p className="text-xs uppercase tracking-widest text-muted-foreground">
+                    Current bid
+                  </p>
+                  <p className="text-5xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400 leading-none mt-1">
+                    {props.currentLot.currentBid}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {props.currentLot.bidderName
+                      ? `by ${props.currentLot.bidderName}`
+                      : "no bidder yet"}
+                    {props.currentLot.price !== null &&
+                      props.currentLot.price !== undefined && (
+                        <span className="opacity-80">
+                          {" · system price "}
+                          {props.currentLot.price}cr
+                        </span>
+                      )}
+                  </p>
+                </div>
               </div>
             </div>
 
