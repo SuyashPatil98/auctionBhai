@@ -159,19 +159,27 @@ Then **migrated the Supabase project from `ap-northeast-1` (Tokyo) to `ap-south-
 
 Calendar reminder: today is around May 15, 2026. **WC kicks off June 11.** Real draft date: June 9.
 
-### Phase 4 — Personal scouting ratings (next, ~3-4 days)
+### Phase 4 — Personal scouting ratings (in progress)
 
-Designed and signed off; not yet built. **A) Personal scouting lens** — each manager configures their own rating; canonical empirical rating still drives prices.
+**A) Personal scouting lens** — each manager configures their own rating; canonical empirical rating still drives prices.
 
-- Selective rating: managers rate only their favourites (not all 1213). "N managers rated" column becomes a real "league interest" signal.
-- **Saved profiles + per-player override**: configure a "my MID formula" once, apply with two clicks; tweak weights for top targets.
-- **Formula**: weighted geometric mean of soft-floored percentiles. For each factor → percentile within position bucket → `p' = 0.20 + 0.80·p` → weighted geo mean (important=2, standard=1). Bounded 0-100. Missing factors silently dropped (manager sees coverage badge).
-- **Factor list**: goals/assists/per-90s/shots, pass-completion, key passes, tackles, interceptions, GK saves/clean-sheets/conceded, age, market value, caps, goals/cap, club tier, empirical rating as a meta-factor.
-- **WC pedigree**: add WC stats from last 7 tournaments (1998-2022). Need a Kaggle ingest before Phase 4.1.
-- **Privacy**: public-after-draft. Numbers visible live, formulas revealed in draft recap.
-- **Lock**: profiles freeze at `draft.status = 'live'`.
+**Shipped:**
+- **Phase 4.0** (commit `Phase 4.0:`) — `wc_pedigree` table + `pnpm import:wc` ingesting hand-curated WC stats 1998-2022. 46 players matched.
+- **Phase 4.1** (commit `Phase 4.1:`) — factor percentile pipeline. Migration 013 adds `rating_factor` enum (16 factors), `rating_profiles`, `rating_profile_factors`, `personal_ratings`, `player_factor_percentiles`. `pnpm compute:percentiles` populates the 19k-row materialized percentile table (1213 active players × 16 factors). Factor registry at `lib/personal-rating/factors.ts`.
 
-Plan: 5 commitable sub-phases (4.1 percentile pipeline → 4.2 compute engine → 4.3 profile builder UI → 4.4 augmented players table → 4.5 lock + reveal).
+**Remaining:**
+
+- **4.2 Compute engine + server actions**: pure-fn `score(percentiles, weights) → { score, coverage }` (weighted geom mean of soft-floored percentiles, ε=0.20, important=2 / standard=1). Server actions for profile CRUD + per-player ratings. Lock guard (`draft.status === 'scheduled'`).
+- **4.3 Profile builder UI**: `/scouting/profiles` — pick factors, tag important/standard, live preview score on a sample player.
+- **4.4 Player table integration**: `/players` grows columns `Price · Consensus · Interest (N/4) · Your view · A · B · C`. Per-player rate action on detail page with override toggle.
+- **4.5 Lock at draft start + post-draft reveal stub**: profile mutations rejected once `status='live'`; reveal page is a stub for now.
+
+**Design recap:**
+- Selective rating: managers rate only their favourites. "Interest N/4" is real league-interest signal.
+- Saved profiles + per-player override: low-friction common path, per-player tweak for top targets.
+- Formula: weighted geometric mean of soft-floored percentiles. `p' = ε + (1-ε)·p` with ε=0.20, then geom-mean with important=2 / standard=1 weights. Bounded 0-100. Missing factors silently dropped.
+- Privacy: public-after-draft. Numbers visible live, formulas revealed in draft recap.
+- Lock: profiles freeze at `draft.status = 'live'`.
 
 ### Phase 5 — Lineups, stat entry, scoring (next big block)
 
@@ -230,6 +238,8 @@ pnpm compute:prices         # rating + expected_matches → price + tier
 pnpm seed:league            # create league + add all profiles as members
 pnpm purge:users            # NUCLEAR: delete all auth users + reset draft (asks for YES confirmation)
 pnpm migrate:db             # copy data between Supabase projects (env: OLD_DATABASE_URL, NEW_DATABASE_URL)
+pnpm import:wc              # import WC pedigree 1998-2022 from lib/data/wc_pedigree.json
+pnpm compute:percentiles    # repopulate player_factor_percentiles after data refresh
 ```
 
 ---
