@@ -14,21 +14,26 @@ const LINKS = [
 
 export function Nav({ displayName }: { displayName?: string | null }) {
   return (
-    <header className="border-b border-border bg-background sticky top-0 z-30">
+    <header
+      className="sticky top-0 z-30 border-b border-border/60 bg-background/60 backdrop-blur-xl supports-[backdrop-filter]:bg-background/50"
+    >
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4">
         <div className="flex items-center gap-6">
           <Link
             href="/dashboard"
-            className="font-semibold tracking-tight text-base"
+            className="flex items-center gap-2 font-bold tracking-tight text-base"
           >
-            FiFantasy
+            <span className="text-base">⚽</span>
+            <span className="bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">
+              FiFantasy
+            </span>
           </Link>
-          <nav className="hidden md:flex items-center gap-1">
+          <nav className="hidden md:flex items-center gap-0.5">
             {LINKS.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
-                className="px-2.5 py-1.5 text-sm text-muted-foreground hover:text-foreground transition"
+                className="px-2.5 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-md transition"
               >
                 {link.label}
               </Link>
@@ -52,7 +57,7 @@ export function Nav({ displayName }: { displayName?: string | null }) {
         </div>
       </div>
       {/* Mobile nav */}
-      <nav className="md:hidden flex items-center gap-0 overflow-x-auto border-t border-border px-2 py-1">
+      <nav className="md:hidden flex items-center gap-0 overflow-x-auto border-t border-border/60 px-2 py-1">
         {LINKS.map((link) => (
           <Link
             key={link.href}
