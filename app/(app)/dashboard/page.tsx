@@ -386,13 +386,13 @@ function PrimaryCta({
         <div className="flex gap-2">
           <Link
             href="/scouting/profiles"
-            className="rounded-md border border-border bg-background px-3 py-1.5 text-sm hover:bg-muted transition"
+            className="rounded-md border border-border bg-background px-3 py-1.5 text-sm transition-all hover:border-foreground/30 hover:bg-muted hover:scale-[1.02] active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             Scouting →
           </Link>
           <Link
             href="/draft"
-            className="rounded-md bg-primary text-primary-foreground px-3 py-1.5 text-sm font-medium hover:opacity-90 transition"
+            className="rounded-md bg-primary text-primary-foreground px-3 py-1.5 text-sm font-semibold transition-all hover:bg-emerald-400 hover:scale-[1.03] hover:shadow-lg hover:shadow-emerald-500/30 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50"
           >
             Draft room →
           </Link>
@@ -413,7 +413,7 @@ function PrimaryCta({
         </div>
         <Link
           href="/draft"
-          className="rounded-md bg-emerald-600 text-white px-4 py-2 text-sm font-semibold hover:opacity-90 transition"
+          className="rounded-md bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 text-sm font-semibold transition-all hover:scale-[1.03] hover:shadow-lg hover:shadow-emerald-500/40 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50"
         >
           Open draft room →
         </Link>

@@ -261,7 +261,7 @@ function SavedList({
           type="button"
           disabled={disabled}
           onClick={onNew}
-          className="rounded-md bg-primary text-primary-foreground px-3 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-40 transition"
+          className="rounded-md bg-primary text-primary-foreground px-3 py-1.5 text-sm font-semibold transition-all hover:bg-emerald-400 hover:scale-[1.03] hover:shadow-lg hover:shadow-emerald-500/30 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-none focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50"
         >
           + New formula
         </button>

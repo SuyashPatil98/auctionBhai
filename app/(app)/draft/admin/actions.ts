@@ -9,10 +9,13 @@ import {
   auditLog,
   drafts,
   leagueMembers,
+  leagues,
   managerBudgets,
+  profiles,
   ratingProfiles,
   rosters,
 } from "@/lib/db/schema";
+import { asc, max } from "drizzle-orm";
 import { createClient } from "@/lib/supabase/server";
 import { nextNominator } from "@/lib/auction/state";
 
@@ -320,5 +323,136 @@ export async function resetDraft(formData: FormData) {
   revalidatePath("/scouting/profiles");
 }
 
+// ============================================================================
+// Member management — UI replacement for `pnpm remove:member` / re-add
+// ============================================================================
+
+async function assertDraftScheduled(): Promise<string> {
+  const [league] = await db.select().from(leagues).limit(1);
+  if (!league) throw new Error("no league");
+  const [draft] = await db
+    .select({ id: drafts.id, status: drafts.status })
+    .from(drafts)
+    .where(eq(drafts.leagueId, league.id))
+    .limit(1);
+  if (!draft) throw new Error("no draft");
+  if (draft.status !== "scheduled") {
+    throw new Error(
+      `draft is ${draft.status} — reset it first if you really need to change membership`
+    );
+  }
+  return league.id;
+}
+
+export async function removeMember(formData: FormData) {
+  const actor = await requireAuthedProfile();
+  const profileId = String(formData.get("profile_id") ?? "");
+  if (!profileId) throw new Error("profile_id required");
+
+  const leagueId = await assertDraftScheduled();
+
+  const [member] = await db
+    .select({
+      displayName: profiles.displayName,
+      nominationOrder: leagueMembers.nominationOrder,
+    })
+    .from(leagueMembers)
+    .innerJoin(profiles, eq(profiles.id, leagueMembers.profileId))
+    .where(
+      and(
+        eq(leagueMembers.leagueId, leagueId),
+        eq(leagueMembers.profileId, profileId)
+      )
+    )
+    .limit(1);
+  if (!member) return; // already gone, no-op
+
+  await db
+    .delete(leagueMembers)
+    .where(
+      and(
+        eq(leagueMembers.leagueId, leagueId),
+        eq(leagueMembers.profileId, profileId)
+      )
+    );
+
+  await db.insert(auditLog).values({
+    actorProfileId: actor,
+    action: "league.member_removed",
+    entity: "league_members",
+    entityId: profileId,
+    before: {
+      profileId,
+      displayName: member.displayName,
+      nominationOrder: member.nominationOrder,
+    },
+    after: null,
+  });
+
+  revalidatePath("/draft/admin");
+  revalidatePath("/draft");
+  revalidatePath("/dashboard");
+}
+
+export async function addMember(formData: FormData) {
+  const actor = await requireAuthedProfile();
+  const profileId = String(formData.get("profile_id") ?? "");
+  if (!profileId) throw new Error("profile_id required");
+
+  const leagueId = await assertDraftScheduled();
+
+  // Check they're not already in the league.
+  const [existing] = await db
+    .select()
+    .from(leagueMembers)
+    .where(
+      and(
+        eq(leagueMembers.leagueId, leagueId),
+        eq(leagueMembers.profileId, profileId)
+      )
+    )
+    .limit(1);
+  if (existing) return;
+
+  // Verify the profile exists.
+  const [target] = await db
+    .select({ id: profiles.id, displayName: profiles.displayName })
+    .from(profiles)
+    .where(eq(profiles.id, profileId))
+    .limit(1);
+  if (!target) throw new Error("profile not found");
+
+  // Assign next nomination_order.
+  const [{ max: highest }] = await db
+    .select({ max: max(leagueMembers.nominationOrder) })
+    .from(leagueMembers)
+    .where(eq(leagueMembers.leagueId, leagueId));
+  const nextOrder = (highest ?? 0) + 1;
+
+  await db.insert(leagueMembers).values({
+    leagueId,
+    profileId: target.id,
+    nominationOrder: nextOrder,
+  });
+
+  await db.insert(auditLog).values({
+    actorProfileId: actor,
+    action: "league.member_added",
+    entity: "league_members",
+    entityId: target.id,
+    before: null,
+    after: {
+      profileId: target.id,
+      displayName: target.displayName,
+      nominationOrder: nextOrder,
+    },
+  });
+
+  revalidatePath("/draft/admin");
+  revalidatePath("/draft");
+  revalidatePath("/dashboard");
+}
+
 // silence
 void sql;
+void asc;

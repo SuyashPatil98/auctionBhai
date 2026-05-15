@@ -766,7 +766,7 @@ function BidForm({
       <button
         type="submit"
         disabled={disabled}
-        className="rounded-md bg-primary text-primary-foreground px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition min-w-[100px]"
+        className="rounded-md bg-primary text-primary-foreground px-4 py-1.5 text-sm font-semibold transition-all hover:bg-emerald-400 hover:scale-[1.03] hover:shadow-lg hover:shadow-emerald-500/30 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-none focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50 min-w-[100px]"
       >
         {isPending
           ? "Bidding…"
@@ -802,7 +802,7 @@ function QuickBids({
             type="button"
             onClick={() => onSet(target)}
             disabled={disabled || target > maxBid}
-            className="rounded border border-border bg-background px-2 py-1.5 text-xs hover:bg-muted disabled:opacity-30 transition"
+            className="rounded-md border border-border bg-background px-2.5 py-1.5 text-xs font-medium transition-all hover:border-emerald-500/40 hover:bg-emerald-500/10 hover:text-emerald-400 active:scale-90 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-background disabled:hover:border-border disabled:hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
           >
             +{b}
           </button>
@@ -812,7 +812,7 @@ function QuickBids({
         type="button"
         onClick={() => onSet(maxBid)}
         disabled={disabled || maxBid <= current}
-        className="rounded border border-border bg-background px-2 py-1.5 text-xs hover:bg-muted disabled:opacity-30 transition"
+        className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs font-bold text-amber-600 dark:text-amber-400 transition-all hover:border-amber-500/60 hover:bg-amber-500/20 hover:scale-105 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40"
       >
         MAX
       </button>

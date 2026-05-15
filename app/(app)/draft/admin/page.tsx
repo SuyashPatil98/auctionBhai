@@ -13,13 +13,16 @@ import {
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
 import {
+  addMember,
   manualAwardLot,
   pauseDraft,
+  removeMember,
   resetDraft,
   resumeDraft,
   voidLot,
 } from "./actions";
 import Link from "next/link";
+import { notInArray } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -45,11 +48,38 @@ export default async function DraftAdminPage() {
     .select({
       profileId: leagueMembers.profileId,
       displayName: profiles.displayName,
+      teamEmoji: profiles.teamEmoji,
+      teamName: profiles.teamName,
+      nominationOrder: leagueMembers.nominationOrder,
     })
     .from(leagueMembers)
     .innerJoin(profiles, eq(profiles.id, leagueMembers.profileId))
     .where(eq(leagueMembers.leagueId, league.id))
     .orderBy(asc(leagueMembers.nominationOrder));
+
+  // Profiles that exist but aren't in the league — candidates to re-add.
+  const memberIds = members.map((m) => m.profileId);
+  const availableProfiles =
+    memberIds.length > 0
+      ? await db
+          .select({
+            id: profiles.id,
+            displayName: profiles.displayName,
+            teamEmoji: profiles.teamEmoji,
+            teamName: profiles.teamName,
+          })
+          .from(profiles)
+          .where(notInArray(profiles.id, memberIds))
+          .orderBy(asc(profiles.displayName))
+      : await db
+          .select({
+            id: profiles.id,
+            displayName: profiles.displayName,
+            teamEmoji: profiles.teamEmoji,
+            teamName: profiles.teamName,
+          })
+          .from(profiles)
+          .orderBy(asc(profiles.displayName));
 
   let currentLot:
     | (typeof auctionLots.$inferSelect & {
@@ -209,6 +239,101 @@ export default async function DraftAdminPage() {
         </>
       )}
 
+      <Section title="League members">
+        {d.status !== "scheduled" && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 mb-3">
+            Membership is locked because the draft is{" "}
+            <code>{d.status}</code>. Reset the draft below if you really need
+            to change membership.
+          </p>
+        )}
+
+        {members.length === 0 ? (
+          <p className="text-sm text-muted-foreground italic">
+            No members in the league yet.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {members.map((m) => (
+              <div
+                key={m.profileId}
+                className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-lg shrink-0 ring-1 ring-border">
+                    {m.teamEmoji ?? "👤"}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">
+                      {m.displayName}
+                      <span className="ml-1.5 text-xs text-muted-foreground font-normal">
+                        #{m.nominationOrder}
+                      </span>
+                    </p>
+                    {m.teamName && (
+                      <p className="text-xs text-muted-foreground truncate">
+                        {m.teamName}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <form action={removeMember}>
+                  <input
+                    type="hidden"
+                    name="profile_id"
+                    value={m.profileId}
+                  />
+                  <button
+                    type="submit"
+                    disabled={d.status !== "scheduled"}
+                    title={
+                      d.status === "scheduled"
+                        ? `Remove ${m.displayName} from the league`
+                        : "Locked while draft is running"
+                    }
+                    className="group rounded-full w-8 h-8 flex items-center justify-center border border-border bg-background text-muted-foreground transition-all hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400 hover:scale-110 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:bg-background disabled:hover:border-border disabled:hover:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40"
+                  >
+                    <span className="text-lg leading-none transition-transform group-hover:rotate-90">
+                      ×
+                    </span>
+                  </button>
+                </form>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {availableProfiles.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-border">
+            <p className="text-xs uppercase tracking-widest text-muted-foreground mb-2">
+              Available to add ({availableProfiles.length})
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {availableProfiles.map((p) => (
+                <form key={p.id} action={addMember}>
+                  <input type="hidden" name="profile_id" value={p.id} />
+                  <button
+                    type="submit"
+                    disabled={d.status !== "scheduled"}
+                    className="group inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-sm transition-all hover:border-emerald-500/50 hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400 hover:scale-105 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
+                  >
+                    <span>{p.teamEmoji ?? "👤"}</span>
+                    <span>{p.displayName}</span>
+                    <span className="text-lg leading-none transition-transform group-hover:rotate-90">
+                      +
+                    </span>
+                  </button>
+                </form>
+              ))}
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-2">
+              These profiles exist but aren&apos;t in the league. Click + to
+              add them back; they get the next nomination order.
+            </p>
+          </div>
+        )}
+      </Section>
+
       <Section title="Reset draft (destructive)">
         <form action={resetDraft} className="flex flex-wrap items-end gap-2">
           <input type="hidden" name="draft_id" value={d.id} />
@@ -300,11 +425,11 @@ function Section({
 function btn(tone: "amber" | "rose" | "emerald") {
   const styles: Record<typeof tone, string> = {
     amber:
-      "bg-amber-500 text-white hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed",
+      "bg-amber-500 hover:bg-amber-400 text-white focus-visible:ring-amber-400/50 shadow-amber-500/20",
     rose:
-      "bg-rose-500 text-white hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed",
+      "bg-rose-500 hover:bg-rose-400 text-white focus-visible:ring-rose-400/50 shadow-rose-500/20",
     emerald:
-      "bg-emerald-500 text-white hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed",
+      "bg-emerald-500 hover:bg-emerald-400 text-white focus-visible:ring-emerald-400/50 shadow-emerald-500/20",
   };
-  return `rounded-md px-3 py-1.5 text-sm font-medium transition ${styles[tone]}`;
+  return `rounded-md px-3 py-1.5 text-sm font-semibold transition-all hover:scale-[1.02] hover:shadow-lg active:scale-95 focus:outline-none focus-visible:ring-2 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-none ${styles[tone]}`;
 }
