@@ -282,57 +282,86 @@ export default function AuctionRoom(props: AuctionRoomProps) {
             const isTurn =
               m.profileId === props.draft.currentNominatorProfileId;
             const hasPassedThisLot = passedSet.has(m.profileId);
+            const remainingPct =
+              (remaining / props.draft.budgetPerManager) * 100;
+            const barTone =
+              remainingPct < 15
+                ? "bg-rose-500"
+                : remainingPct < 40
+                ? "bg-amber-500"
+                : "bg-emerald-500";
             return (
               <div
                 key={m.profileId}
-                className={`rounded-lg border p-3 transition ${
+                className={`relative rounded-xl border p-3 transition ${
                   isTurn
-                    ? "border-emerald-500/50 bg-emerald-500/5"
+                    ? "border-emerald-500/60 bg-emerald-500/5 shadow-md shadow-emerald-500/10"
                     : "border-border bg-card"
                 } ${hasPassedThisLot ? "opacity-60" : ""}`}
               >
-                <div className="flex items-center justify-between text-sm gap-2">
-                  <span className="font-medium truncate">
-                    {m.teamEmoji} {m.displayName}
-                    {isMe && (
-                      <span className="ml-1 text-xs text-muted-foreground">
-                        (you)
-                      </span>
-                    )}
-                  </span>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {hasPassedThisLot && (
-                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground whitespace-nowrap">
-                        ⊘ passed
-                      </span>
-                    )}
-                    {isTurn && (
-                      <span className="text-[10px] uppercase tracking-wider text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
-                        Nominating
-                      </span>
-                    )}
+                {/* Header: emoji avatar + name + status pill */}
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div
+                    className={`w-10 h-10 rounded-full flex items-center justify-center text-xl shrink-0 ring-2 ${
+                      isTurn
+                        ? "ring-emerald-500/60 bg-emerald-500/10"
+                        : "ring-border bg-muted"
+                    }`}
+                  >
+                    {m.teamEmoji ?? "👤"}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">
+                      {m.displayName}
+                      {isMe && (
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          (you)
+                        </span>
+                      )}
+                    </p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {isTurn && (
+                        <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-emerald-700 dark:text-emerald-400 font-semibold">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          Nominating
+                        </span>
+                      )}
+                      {hasPassedThisLot && (
+                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                          ⊘ passed
+                        </span>
+                      )}
+                      {!isTurn && !hasPassedThisLot && (
+                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                          Manager #{m.nominationOrder}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
-                <div className="mt-2 flex items-baseline justify-between">
-                  <span className="text-2xl font-semibold tabular-nums">
-                    {remaining}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {slots}/{props.draft.rosterSize} slots
+
+                {/* Budget block */}
+                <div className="mt-3 flex items-baseline justify-between">
+                  <div>
+                    <span className="text-2xl font-bold tabular-nums">
+                      {remaining}
+                    </span>
+                    <span className="text-xs text-muted-foreground ml-1">
+                      cr
+                    </span>
+                  </div>
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {slots}/{props.draft.rosterSize}
                   </span>
                 </div>
-                <div className="mt-1 h-1 rounded-full bg-muted overflow-hidden">
+                <div className="mt-1 h-1.5 rounded-full bg-muted overflow-hidden">
                   <div
-                    className="h-full bg-emerald-500 transition-all"
-                    style={{
-                      width: `${
-                        (remaining / props.draft.budgetPerManager) * 100
-                      }%`,
-                    }}
+                    className={`h-full transition-all ${barTone}`}
+                    style={{ width: `${remainingPct}%` }}
                   />
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  spent {spent} / {props.draft.budgetPerManager}
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  {spent} spent of {props.draft.budgetPerManager}
                 </p>
               </div>
             );
@@ -394,40 +423,38 @@ export default function AuctionRoom(props: AuctionRoomProps) {
                     )}
                   </p>
                 </div>
-                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
-                  <p className="text-xs uppercase tracking-widest text-muted-foreground">
-                    Current bid
-                  </p>
-                  <p className="text-5xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400 leading-none mt-1">
-                    {props.currentLot.currentBid}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    {props.currentLot.bidderName
-                      ? `by ${props.currentLot.bidderName}`
-                      : "no bidder yet"}
-                    {props.currentLot.price !== null &&
-                      props.currentLot.price !== undefined && (
-                        <span className="opacity-80">
-                          {" · system price "}
-                          {props.currentLot.price}cr
-                        </span>
-                      )}
-                  </p>
+                <div className="grid grid-cols-[1fr_auto] gap-3 items-stretch">
+                  <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
+                    <p className="text-xs uppercase tracking-widest text-muted-foreground">
+                      Current bid
+                    </p>
+                    <p className="text-5xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400 leading-none mt-1">
+                      {props.currentLot.currentBid}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      {props.currentLot.bidderName
+                        ? `by ${props.currentLot.bidderName}`
+                        : "no bidder yet"}
+                      {props.currentLot.price !== null &&
+                        props.currentLot.price !== undefined && (
+                          <span className="opacity-80">
+                            {" · system price "}
+                            {props.currentLot.price}cr
+                          </span>
+                        )}
+                    </p>
+                  </div>
+                  {secondsRemaining !== null && (
+                    <div className="rounded-lg border border-border bg-background p-4 flex items-center">
+                      <BigCountdown
+                        seconds={secondsRemaining}
+                        paused={props.draft.status === "paused"}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
-
-            {secondsRemaining !== null && (
-              <p className="text-sm tabular-nums">
-                {props.draft.status === "paused" ? (
-                  <span className="text-amber-600 dark:text-amber-400">
-                    ⏸ paused
-                  </span>
-                ) : (
-                  <CountdownText seconds={secondsRemaining} />
-                )}
-              </p>
-            )}
 
             {isMember && props.draft.status === "live" && (
               <>
@@ -545,12 +572,32 @@ export default function AuctionRoom(props: AuctionRoomProps) {
 // ============================================================================
 
 function Header({ draft }: { draft: DraftState }) {
-  const pill: Record<string, string> = {
-    scheduled: "bg-muted text-muted-foreground",
-    live: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-    paused: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-    complete: "bg-sky-500/15 text-sky-700 dark:text-sky-400",
+  const pill: Record<
+    string,
+    { bg: string; dot: string; label: string }
+  > = {
+    scheduled: {
+      bg: "bg-muted text-muted-foreground border-border",
+      dot: "bg-muted-foreground",
+      label: "Scheduled",
+    },
+    live: {
+      bg: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30",
+      dot: "bg-emerald-500 animate-pulse",
+      label: "Live",
+    },
+    paused: {
+      bg: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30",
+      dot: "bg-amber-500",
+      label: "Paused",
+    },
+    complete: {
+      bg: "bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-500/30",
+      dot: "bg-sky-500",
+      label: "Complete",
+    },
   };
+  const p = pill[draft.status] ?? pill.scheduled;
   return (
     <div className="flex items-center justify-between gap-3">
       <div>
@@ -565,9 +612,10 @@ function Header({ draft }: { draft: DraftState }) {
           Admin
         </a>
         <span
-          className={`text-xs uppercase tracking-wider font-medium px-2 py-1 rounded ${pill[draft.status]}`}
+          className={`inline-flex items-center gap-1.5 text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded-full border ${p.bg}`}
         >
-          {draft.status}
+          <span className={`w-1.5 h-1.5 rounded-full ${p.dot}`} />
+          {p.label}
         </span>
       </div>
     </div>
@@ -600,19 +648,57 @@ function CountdownBar({
   );
 }
 
-function CountdownText({ seconds }: { seconds: number }) {
-  if (seconds <= 0)
-    return <span className="text-muted-foreground">finalizing…</span>;
-  const tone =
-    seconds <= 3
-      ? "text-red-600 dark:text-red-400 font-bold animate-pulse"
-      : seconds <= 8
-      ? "text-amber-600 dark:text-amber-400 font-semibold"
-      : "text-muted-foreground";
+/**
+ * Big timer for the lot panel — large tabular number with urgency colors.
+ * Replaces the small "⏱ 23s" text when the lot is live and needs attention.
+ */
+function BigCountdown({
+  seconds,
+  paused,
+}: {
+  seconds: number;
+  paused?: boolean;
+}) {
+  if (paused) {
+    return (
+      <div className="text-center">
+        <div className="text-4xl font-black tabular-nums text-amber-600 dark:text-amber-400">
+          ⏸
+        </div>
+        <p className="text-[10px] uppercase tracking-widest text-muted-foreground mt-1">
+          paused
+        </p>
+      </div>
+    );
+  }
+  if (seconds <= 0) {
+    return (
+      <div className="text-center">
+        <div className="text-4xl font-black tabular-nums text-muted-foreground">
+          —
+        </div>
+        <p className="text-[10px] uppercase tracking-widest text-muted-foreground mt-1">
+          finalizing
+        </p>
+      </div>
+    );
+  }
+  const urgent = seconds <= 5;
+  const warning = seconds <= 12 && !urgent;
+  const tone = urgent
+    ? "text-rose-600 dark:text-rose-400 animate-pulse"
+    : warning
+    ? "text-amber-600 dark:text-amber-400"
+    : "text-foreground";
   return (
-    <span className={tone}>
-      ⏱ {Math.ceil(seconds)}s
-    </span>
+    <div className="text-center">
+      <div className={`text-5xl font-black tabular-nums leading-none ${tone}`}>
+        {Math.ceil(seconds)}
+      </div>
+      <p className="text-[10px] uppercase tracking-widest text-muted-foreground mt-1">
+        seconds
+      </p>
+    </div>
   );
 }
 
