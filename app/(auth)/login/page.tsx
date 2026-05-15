@@ -49,8 +49,15 @@ export default async function LoginPage({
 
   return (
     <div className="space-y-6">
-      <div className="space-y-2 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">FiFantasy</h1>
+      <div className="space-y-3 text-center">
+        <div className="inline-block">
+          <div className="text-5xl">⚽</div>
+        </div>
+        <h1 className="text-3xl font-bold tracking-tight">
+          <span className="bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-400 bg-clip-text text-transparent">
+            FiFantasy
+          </span>
+        </h1>
         <p className="text-sm text-muted-foreground">
           World Cup 2026 · 4-manager private league
         </p>
