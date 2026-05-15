@@ -7,8 +7,9 @@ const LINKS = [
   { href: "/team", label: "Team" },
   { href: "/fixtures", label: "Fixtures" },
   { href: "/players", label: "Players" },
+  { href: "/scouting/profiles", label: "Scouting" },
   { href: "/standings", label: "Standings" },
-  { href: "/admin/ingest", label: "Admin" },
+  { href: "/admin", label: "Admin" },
 ];
 
 export function Nav({ displayName }: { displayName?: string | null }) {
