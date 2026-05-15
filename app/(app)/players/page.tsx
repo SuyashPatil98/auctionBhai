@@ -2,11 +2,15 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import {
   countries,
+  leagueMembers,
+  leagues,
+  personalRatings,
   playerPrices,
   playerRatings,
   realPlayers,
 } from "@/lib/db/schema";
-import { and, asc, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -105,6 +109,54 @@ export default async function PlayersPage({
     .from(countries)
     .orderBy(asc(countries.name));
 
+  // ----------------------------------------------------------------------
+  // Personal scouting overlay: for each visible player, count how many
+  // managers have rated them ("interest") and surface my own score.
+  // ----------------------------------------------------------------------
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const myId = user?.id ?? null;
+
+  const playerIds = rows.map((r) => r.id);
+  type PrRow = {
+    realPlayerId: string;
+    managerId: string;
+    score: string;
+  };
+  const prs: PrRow[] =
+    playerIds.length > 0
+      ? await db
+          .select({
+            realPlayerId: personalRatings.realPlayerId,
+            managerId: personalRatings.managerId,
+            score: personalRatings.score,
+          })
+          .from(personalRatings)
+          .where(inArray(personalRatings.realPlayerId, playerIds))
+      : [];
+
+  // Index: player_id → array of (manager_id, score). Lets us derive both
+  // the interest count and my-own-score in one pass per row.
+  const ratingsByPlayer = new Map<string, PrRow[]>();
+  for (const pr of prs) {
+    const arr = ratingsByPlayer.get(pr.realPlayerId) ?? [];
+    arr.push(pr);
+    ratingsByPlayer.set(pr.realPlayerId, arr);
+  }
+
+  // League member count for the "N/4" denominator.
+  const [league] = await db.select().from(leagues).limit(1);
+  const memberCount = league
+    ? (
+        await db
+          .select({ n: sql<number>`count(*)::int` })
+          .from(leagueMembers)
+          .where(eq(leagueMembers.leagueId, league.id))
+      )[0].n
+    : 0;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -201,17 +253,34 @@ export default async function PlayersPage({
             <thead className="bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="text-right px-3 py-2 w-16">Price</th>
-                <th className="text-right px-3 py-2 w-16">Rating</th>
+                <th className="text-right px-3 py-2 w-16" title="Consensus rating (the empirical engine)">Cons.</th>
+                <th
+                  className="text-right px-3 py-2 w-16"
+                  title="Your personal rating from your active scouting profile"
+                >
+                  Yours
+                </th>
+                <th
+                  className="text-right px-3 py-2 w-16"
+                  title="How many managers have rated this player"
+                >
+                  Interest
+                </th>
                 <th className="text-left px-3 py-2">Player</th>
                 <th className="text-left px-3 py-2">Tier</th>
                 <th className="text-left px-3 py-2">Country</th>
                 <th className="text-left px-3 py-2">Pos</th>
-                <th className="text-right px-3 py-2">#</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((p) => {
                 const rating = p.rating !== null ? Number(p.rating) : null;
+                const playerPrs = ratingsByPlayer.get(p.id) ?? [];
+                const myPr = myId
+                  ? playerPrs.find((r) => r.managerId === myId)
+                  : undefined;
+                const myScore = myPr ? Number(myPr.score) : null;
+                const interest = playerPrs.length;
                 return (
                   <tr
                     key={p.id}
@@ -229,6 +298,22 @@ export default async function PlayersPage({
                         <RatingBadge value={rating} />
                       ) : (
                         <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {myScore !== null ? (
+                        <YoursBadge value={myScore} consensus={rating} />
+                      ) : (
+                        <span className="text-muted-foreground/60">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {interest > 0 ? (
+                        <InterestBadge n={interest} of={memberCount} />
+                      ) : (
+                        <span className="text-muted-foreground/60">
+                          0/{memberCount || "—"}
+                        </span>
                       )}
                     </td>
                     <td className="px-3 py-2 font-medium">
@@ -255,9 +340,6 @@ export default async function PlayersPage({
                     </td>
                     <td className="px-3 py-2">
                       <PositionBadge position={p.position} />
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                      {p.shirtNumber ?? "—"}
                     </td>
                   </tr>
                 );
@@ -310,6 +392,65 @@ function PriceBadge({ value }: { value: number }) {
       ? "text-foreground"
       : "text-muted-foreground";
   return <span className={tone}>{value}</span>;
+}
+
+function YoursBadge({
+  value,
+  consensus,
+}: {
+  value: number;
+  consensus: number | null;
+}) {
+  // Encode conviction: how far above/below consensus your view sits.
+  const delta = consensus !== null ? value - consensus : null;
+  const arrow =
+    delta === null
+      ? ""
+      : delta >= 5
+      ? "↑"
+      : delta <= -5
+      ? "↓"
+      : "";
+  const tone =
+    delta === null
+      ? "text-foreground font-medium"
+      : delta >= 5
+      ? "text-emerald-700 dark:text-emerald-400 font-semibold"
+      : delta <= -5
+      ? "text-rose-700 dark:text-rose-400 font-semibold"
+      : "text-foreground font-medium";
+  return (
+    <span
+      className={tone}
+      title={
+        delta === null
+          ? "your rating"
+          : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)} vs consensus`
+      }
+    >
+      {value.toFixed(0)}
+      {arrow && <span className="ml-0.5 text-xs">{arrow}</span>}
+    </span>
+  );
+}
+
+function InterestBadge({ n, of }: { n: number; of: number }) {
+  // Heat by share-of-league: 4/4 = scorching, 1/4 = cool.
+  const tone =
+    of <= 0
+      ? "text-muted-foreground"
+      : n >= of
+      ? "text-rose-700 dark:text-rose-400 font-bold"
+      : n >= Math.ceil(of * 0.75)
+      ? "text-amber-700 dark:text-amber-400 font-semibold"
+      : n >= 2
+      ? "text-foreground font-medium"
+      : "text-muted-foreground";
+  return (
+    <span className={tone} title={`${n} of ${of} managers rated`}>
+      {n}/{of || "—"}
+    </span>
+  );
 }
 
 function TierBadge({ tier }: { tier: string }) {

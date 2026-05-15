@@ -3,13 +3,25 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import {
   countries,
+  drafts,
+  leagueMembers,
+  leagues,
+  personalRatings,
   playerClubStats,
   playerPrices,
   playerRatings,
+  profiles,
+  ratingProfileFactors,
+  ratingProfiles,
   realPlayers,
   transfermarktPlayers,
 } from "@/lib/db/schema";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, sql } from "drizzle-orm";
+import { createClient } from "@/lib/supabase/server";
+import ScoutingSection, {
+  type LeagueRating,
+  type MyProfileOption,
+} from "./ScoutingSection";
 
 export const dynamic = "force-dynamic";
 
@@ -187,6 +199,154 @@ export default async function PlayerDetailPage({ params }: { params: Params }) {
   const raw = (club?.raw ?? {}) as Raw;
   const verdict = buildVerdict({ player, rating, age, tm, club, raw, inputs });
 
+  // ----- Scouting data (Phase 4.4) -----
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const myId = user?.id ?? null;
+
+  const [league] = await db.select().from(leagues).limit(1);
+  const [draftRow] = league
+    ? await db
+        .select({ status: drafts.status })
+        .from(drafts)
+        .where(eq(drafts.leagueId, league.id))
+        .limit(1)
+    : [];
+  const locked = !!draftRow && draftRow.status !== "scheduled";
+
+  let isMember = false;
+  let leagueRatings: LeagueRating[] = [];
+  let myProfileOptions: MyProfileOption[] = [];
+  let myCurrentRating: {
+    score: number;
+    coverageCount: number;
+    totalFactors: number;
+    sourceProfileId: string | null;
+  } | null = null;
+
+  if (myId && league) {
+    isMember =
+      (
+        await db
+          .select()
+          .from(leagueMembers)
+          .where(
+            and(
+              eq(leagueMembers.leagueId, league.id),
+              eq(leagueMembers.profileId, myId)
+            )
+          )
+          .limit(1)
+      ).length > 0;
+
+    // 4-row league view: every member, with their score on this player or null.
+    const members = await db
+      .select({
+        id: leagueMembers.profileId,
+        order: leagueMembers.nominationOrder,
+        displayName: profiles.displayName,
+        teamEmoji: profiles.teamEmoji,
+      })
+      .from(leagueMembers)
+      .innerJoin(profiles, eq(profiles.id, leagueMembers.profileId))
+      .where(eq(leagueMembers.leagueId, league.id))
+      .orderBy(asc(leagueMembers.nominationOrder));
+
+    const ratingsHere = await db
+      .select({
+        managerId: personalRatings.managerId,
+        score: personalRatings.score,
+        coverageCount: personalRatings.coverageCount,
+        totalFactors: personalRatings.totalFactors,
+        sourceProfileId: personalRatings.sourceProfileId,
+      })
+      .from(personalRatings)
+      .where(eq(personalRatings.realPlayerId, id));
+
+    const byManager = new Map(
+      ratingsHere.map((r) => [r.managerId, r])
+    );
+
+    // For each rating with a source_profile, look up the profile name —
+    // BUT only show that name to the OWNING manager (formulas are private
+    // until the draft ends; we just show the score to other managers).
+    const sourceProfileIds = ratingsHere
+      .map((r) => r.sourceProfileId)
+      .filter((x): x is string => x !== null);
+    const profileNames = new Map<string, string>();
+    if (sourceProfileIds.length > 0) {
+      const ps = await db
+        .select({ id: ratingProfiles.id, name: ratingProfiles.name })
+        .from(ratingProfiles);
+      for (const p of ps) profileNames.set(p.id, p.name);
+    }
+
+    leagueRatings = members.map((m) => {
+      const r = byManager.get(m.id);
+      const showProfileName = r?.sourceProfileId
+        ? m.id === myId
+          ? profileNames.get(r.sourceProfileId) ?? null
+          : null
+        : null;
+      return {
+        managerName: m.displayName,
+        managerEmoji: m.teamEmoji,
+        isMe: m.id === myId,
+        score: r ? Math.round(Number(r.score)) : null,
+        coverageCount: r?.coverageCount ?? null,
+        totalFactors: r?.totalFactors ?? null,
+        sourceProfileName: showProfileName,
+      };
+    });
+
+    // My profile picker — list my saved formulas with factor counts.
+    const myProfileRows = await db
+      .select({
+        id: ratingProfiles.id,
+        name: ratingProfiles.name,
+      })
+      .from(ratingProfiles)
+      .where(eq(ratingProfiles.managerId, myId))
+      .orderBy(asc(ratingProfiles.createdAt));
+
+    if (myProfileRows.length > 0) {
+      const factorCounts = await db
+        .select({
+          profileId: ratingProfileFactors.profileId,
+          total: count(),
+          imp: sql<number>`count(*) filter (where importance = 'important')`,
+        })
+        .from(ratingProfileFactors)
+        .groupBy(ratingProfileFactors.profileId);
+
+      const byProfile = new Map(
+        factorCounts.map((f) => [
+          f.profileId,
+          { total: f.total, imp: Number(f.imp) },
+        ])
+      );
+
+      myProfileOptions = myProfileRows.map((p) => ({
+        id: p.id,
+        name: p.name,
+        factorCount: byProfile.get(p.id)?.total ?? 0,
+        importantCount: byProfile.get(p.id)?.imp ?? 0,
+      }));
+    }
+
+    const mine = byManager.get(myId);
+    if (mine) {
+      myCurrentRating = {
+        score: Math.round(Number(mine.score)),
+        coverageCount: mine.coverageCount,
+        totalFactors: mine.totalFactors,
+        sourceProfileId: mine.sourceProfileId,
+      };
+    }
+  }
+
   return (
     <div className="space-y-8">
       {/* HERO */}
@@ -301,6 +461,19 @@ export default async function PlayerDetailPage({ params }: { params: Params }) {
           </p>
         )}
       </section>
+
+      {/* SCOUTING (Phase 4.4) */}
+      <ScoutingSection
+        playerId={player.id}
+        playerName={player.displayName}
+        consensus={rating}
+        locked={locked}
+        lockReason={draftRow?.status ?? null}
+        isMember={isMember}
+        myProfiles={myProfileOptions}
+        myCurrentRating={myCurrentRating}
+        leagueRatings={leagueRatings}
+      />
 
       {/* PRICE BREAKDOWN */}
       {price && (
