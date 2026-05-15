@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  applyProfileBulk,
   createProfile,
   deleteProfile,
   updateProfile,
@@ -275,46 +276,172 @@ function SavedList({
       ) : (
         <div className="space-y-2">
           {profiles.map((p) => (
-            <div
+            <SavedProfileCard
               key={p.id}
-              className="rounded-lg border border-border bg-card p-4"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium">{p.name}</p>
-                  {p.description && (
-                    <p className="text-sm text-muted-foreground mt-0.5">
-                      {p.description}
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-2">
-                    {p.factors.length} factor{p.factors.length === 1 ? "" : "s"} ·{" "}
-                    {p.factors.filter((f) => f.importance === "important").length}{" "}
-                    important
-                  </p>
-                </div>
-                <div className="flex gap-2 shrink-0">
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => onEdit(p)}
-                    className="rounded-md border border-border bg-background px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-40 transition"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => onDelete(p)}
-                    className="rounded-md border border-destructive/30 bg-destructive/5 text-destructive px-3 py-1.5 text-xs hover:bg-destructive/10 disabled:opacity-40 transition"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            </div>
+              profile={p}
+              disabled={disabled}
+              onEdit={() => onEdit(p)}
+              onDelete={() => onDelete(p)}
+            />
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// SavedProfileCard — one saved formula row with edit/delete + bulk-apply
+// ============================================================================
+
+function SavedProfileCard({
+  profile,
+  disabled,
+  onEdit,
+  onDelete,
+}: {
+  profile: SavedProfile;
+  disabled: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="font-medium">{profile.name}</p>
+          {profile.description && (
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {profile.description}
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground mt-2">
+            {profile.factors.length} factor
+            {profile.factors.length === 1 ? "" : "s"} ·{" "}
+            {profile.factors.filter((f) => f.importance === "important").length}{" "}
+            important
+          </p>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={onEdit}
+            className="rounded-md border border-border bg-background px-3 py-1.5 text-xs transition-all hover:border-foreground/30 hover:bg-muted hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={onDelete}
+            className="rounded-md border border-destructive/30 bg-destructive/5 text-destructive px-3 py-1.5 text-xs transition-all hover:bg-destructive/15 hover:border-destructive/50 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+
+      <BulkApply profile={profile} disabled={disabled} />
+    </div>
+  );
+}
+
+function BulkApply({
+  profile,
+  disabled,
+}: {
+  profile: SavedProfile;
+  disabled: boolean;
+}) {
+  const router = useRouter();
+  const [filter, setFilter] = useState<"all" | "GK" | "DEF" | "MID" | "FWD">(
+    "all"
+  );
+  const [skipExisting, setSkipExisting] = useState(false);
+  const [isPending, startTransition] = useTransition();
+  const [result, setResult] = useState<string | null>(null);
+
+  function handleApply() {
+    setResult(null);
+    startTransition(() => {
+      applyProfileBulk({
+        profileId: profile.id,
+        filters: {
+          position: filter === "all" ? null : filter,
+          skipExisting,
+        },
+      })
+        .then((r) => {
+          const parts: string[] = [];
+          if (r.inserted > 0) parts.push(`${r.inserted} new`);
+          if (r.updated > 0) parts.push(`${r.updated} updated`);
+          if (r.skipped > 0) parts.push(`${r.skipped} skipped`);
+          setResult(
+            r.matched === 0
+              ? "No players matched the filter."
+              : `Applied to ${r.matched} players — ${parts.join(" · ") || "no changes"}`
+          );
+          router.refresh();
+        })
+        .catch((e) => setResult(`Error: ${String(e.message ?? e)}`));
+    });
+  }
+
+  return (
+    <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-2">
+      <p className="text-xs uppercase tracking-widest text-emerald-700 dark:text-emerald-400 font-semibold">
+        Bulk apply
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Rate many players at once with this formula. Per-player overrides
+        you&apos;ve already set are preserved.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-md border border-border overflow-hidden text-xs">
+          {(["all", "GK", "DEF", "MID", "FWD"] as const).map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              disabled={disabled || isPending}
+              onClick={() => setFilter(opt)}
+              className={`px-2.5 py-1 transition-colors ${
+                filter === opt
+                  ? "bg-foreground text-background"
+                  : "bg-background hover:bg-muted text-muted-foreground"
+              }`}
+            >
+              {opt === "all" ? "All players" : opt}
+            </button>
+          ))}
+        </div>
+        <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={skipExisting}
+            disabled={disabled || isPending}
+            onChange={(e) => setSkipExisting(e.target.checked)}
+            className="rounded border-border"
+          />
+          Only rate new players (skip already-rated)
+        </label>
+        <button
+          type="button"
+          disabled={disabled || isPending}
+          onClick={handleApply}
+          className="ml-auto rounded-md bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 text-xs font-semibold transition-all hover:scale-105 hover:shadow-md hover:shadow-emerald-500/30 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50"
+        >
+          {isPending
+            ? "Applying…"
+            : filter === "all"
+            ? "Apply to all"
+            : `Apply to all ${filter}s`}
+        </button>
+      </div>
+      {result && (
+        <p className="text-xs font-medium text-foreground bg-background/60 rounded px-2 py-1.5">
+          {result}
+        </p>
       )}
     </div>
   );

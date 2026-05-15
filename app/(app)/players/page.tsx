@@ -8,11 +8,14 @@ import {
   playerPrices,
   playerRatings,
   profiles,
+  ratingProfileFactors,
+  ratingProfiles,
   realPlayers,
 } from "@/lib/db/schema";
 import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { createClient } from "@/lib/supabase/server";
 import { PlayerCard } from "@/components/PlayerCard";
+import BulkRatePanel from "./BulkRatePanel";
 
 export const dynamic = "force-dynamic";
 
@@ -173,6 +176,46 @@ export default async function PlayersPage({
         .orderBy(asc(leagueMembers.nominationOrder))
     : [];
   const memberCount = memberList.length;
+
+  // My saved formulas, for the BulkRatePanel above the table.
+  const myProfiles = myId
+    ? await db
+        .select({
+          id: ratingProfiles.id,
+          name: ratingProfiles.name,
+        })
+        .from(ratingProfiles)
+        .where(eq(ratingProfiles.managerId, myId))
+        .orderBy(asc(ratingProfiles.createdAt))
+    : [];
+  let myProfilesWithCounts: Array<{
+    id: string;
+    name: string;
+    factorCount: number;
+  }> = [];
+  if (myProfiles.length > 0) {
+    const factorCounts = await db
+      .select({
+        profileId: ratingProfileFactors.profileId,
+        n: sql<number>`count(*)::int`,
+      })
+      .from(ratingProfileFactors)
+      .where(
+        inArray(
+          ratingProfileFactors.profileId,
+          myProfiles.map((p) => p.id)
+        )
+      )
+      .groupBy(ratingProfileFactors.profileId);
+    const byProfile = new Map(
+      factorCounts.map((f) => [f.profileId, Number(f.n)])
+    );
+    myProfilesWithCounts = myProfiles.map((p) => ({
+      id: p.id,
+      name: p.name,
+      factorCount: byProfile.get(p.id) ?? 0,
+    }));
+  }
 
   // Apply the personal-scouting filters AFTER fetching (we need the
   // per-player interest count derived from ratingsByPlayer):
@@ -352,6 +395,18 @@ export default async function PlayersPage({
           </Link>
         </div>
       </form>
+
+      {myProfilesWithCounts.length > 0 && (
+        <BulkRatePanel
+          profiles={myProfilesWithCounts}
+          filters={{
+            q: q ?? null,
+            position: posFilter,
+            countryCode: country ?? null,
+          }}
+          matchCount={rows.length}
+        />
+      )}
 
       {filteredRows.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">

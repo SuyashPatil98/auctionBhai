@@ -2,9 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
+  countries,
   drafts,
   leagueMembers,
   leagues,
@@ -12,6 +13,7 @@ import {
   playerFactorPercentiles,
   ratingProfileFactors,
   ratingProfiles,
+  realPlayers,
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -373,4 +375,241 @@ async function rescoreRatingsForProfile(profileId: string): Promise<void> {
       })
       .where(eq(personalRatings.id, r.id));
   }
+}
+
+// ============================================================================
+// Bulk apply — rate many players at once with one formula
+// ============================================================================
+
+export type BulkFilters = {
+  position?: "GK" | "DEF" | "MID" | "FWD" | null;
+  countryCode?: string | null;
+  query?: string | null; // matches against full_name + display_name
+  skipExisting?: boolean; // if true, only insert; don't overwrite manual ratings
+};
+
+export type BulkResult = {
+  matched: number;
+  inserted: number;
+  updated: number;
+  skipped: number;
+};
+
+/**
+ * Apply a saved profile to every player matching the filter (or every player
+ * if no filter). Each row in personal_ratings is upserted, EXCEPT when the
+ * row has manager overrides — those are personalized and we leave them.
+ *
+ * Filter behavior:
+ *   - position: narrow to GK/DEF/MID/FWD
+ *   - countryCode: narrow by ISO/FIFA code (matches countries.code)
+ *   - query: substring match against full_name OR display_name
+ *   - skipExisting: when true, never overwrite — only rate new players
+ *
+ * Returns counts so the UI can say "rated 47 players (4 already rated,
+ * skipped)" or similar.
+ */
+export async function applyProfileBulk(input: {
+  profileId: string;
+  filters?: BulkFilters;
+}): Promise<BulkResult> {
+  const managerId = await requireAuthedProfile();
+  await requireLeagueMember(managerId);
+  await assertNotLocked();
+
+  // Load profile + factors, asserting ownership.
+  const [profile] = await db
+    .select()
+    .from(ratingProfiles)
+    .where(eq(ratingProfiles.id, input.profileId))
+    .limit(1);
+  if (!profile) throw new Error("profile not found");
+  if (profile.managerId !== managerId) throw new Error("not your profile");
+
+  const profileFactors = await db
+    .select()
+    .from(ratingProfileFactors)
+    .where(eq(ratingProfileFactors.profileId, input.profileId));
+  if (profileFactors.length === 0) {
+    throw new Error("profile has no factors");
+  }
+
+  const weights: FactorWeight[] = profileFactors.map((f) => ({
+    factor_id: f.factorId as FactorId,
+    importance: f.importance as Importance,
+  }));
+
+  // Resolve filters into a player_id list.
+  const filters = input.filters ?? {};
+  const conditions = [eq(realPlayers.isActive, true)];
+  if (filters.position) {
+    conditions.push(eq(realPlayers.position, filters.position));
+  }
+  if (filters.countryCode) {
+    conditions.push(eq(countries.code, filters.countryCode.toUpperCase()));
+  }
+  if (filters.query && filters.query.trim()) {
+    const like = `%${filters.query.trim()}%`;
+    conditions.push(
+      or(
+        ilike(realPlayers.fullName, like),
+        ilike(realPlayers.displayName, like)
+      )!
+    );
+  }
+
+  const candidatePlayers = await db
+    .select({
+      id: realPlayers.id,
+    })
+    .from(realPlayers)
+    .innerJoin(countries, eq(countries.id, realPlayers.countryId))
+    .where(and(...conditions));
+
+  if (candidatePlayers.length === 0) {
+    return { matched: 0, inserted: 0, updated: 0, skipped: 0 };
+  }
+  const candidateIds = candidatePlayers.map((p) => p.id);
+
+  // Bulk-fetch percentiles for all candidates × the factors in this profile.
+  // One query — saves N round-trips.
+  const factorIds = weights.map((w) => w.factor_id);
+  const pctRows = await db
+    .select({
+      realPlayerId: playerFactorPercentiles.realPlayerId,
+      factorId: playerFactorPercentiles.factorId,
+      percentile: playerFactorPercentiles.percentile,
+      hasData: playerFactorPercentiles.hasData,
+    })
+    .from(playerFactorPercentiles)
+    .where(
+      and(
+        inArray(playerFactorPercentiles.realPlayerId, candidateIds),
+        inArray(playerFactorPercentiles.factorId, factorIds)
+      )
+    );
+
+  // Index percentiles by player.
+  const pctByPlayer = new Map<string, FactorPercentile[]>();
+  for (const r of pctRows) {
+    const arr = pctByPlayer.get(r.realPlayerId) ?? [];
+    arr.push({
+      factor_id: r.factorId as FactorId,
+      percentile: Number(r.percentile),
+      has_data: r.hasData,
+    });
+    pctByPlayer.set(r.realPlayerId, arr);
+  }
+
+  // Pre-fetch existing personal_ratings for these players so we know
+  // which rows are inserts vs updates and which have overrides.
+  const existing = await db
+    .select({
+      realPlayerId: personalRatings.realPlayerId,
+      hasOverrides: sql<boolean>`coalesce(${personalRatings.overrides} is not null and jsonb_array_length(${personalRatings.overrides}) > 0, false)`,
+    })
+    .from(personalRatings)
+    .where(
+      and(
+        eq(personalRatings.managerId, managerId),
+        inArray(personalRatings.realPlayerId, candidateIds)
+      )
+    );
+  const existingByPlayer = new Map<string, { hasOverrides: boolean }>();
+  for (const r of existing) {
+    existingByPlayer.set(r.realPlayerId, { hasOverrides: r.hasOverrides });
+  }
+
+  let inserted = 0;
+  let updated = 0;
+  let skipped = 0;
+
+  // Score + upsert each. Group inserts/updates to keep the tx tight.
+  type Row = {
+    realPlayerId: string;
+    score: string;
+    coverageCount: number;
+    totalFactors: number;
+  };
+  const toInsert: Row[] = [];
+  const toUpdate: Row[] = [];
+
+  for (const id of candidateIds) {
+    const ex = existingByPlayer.get(id);
+    // Never blow away a manager's per-player overrides — those are
+    // intentional customization beyond the profile's defaults.
+    if (ex?.hasOverrides) {
+      skipped++;
+      continue;
+    }
+    if (filters.skipExisting && ex) {
+      skipped++;
+      continue;
+    }
+    const percentiles = pctByPlayer.get(id) ?? [];
+    const result = computePersonalRating(weights, percentiles);
+    const row: Row = {
+      realPlayerId: id,
+      score: result.score.toFixed(2),
+      coverageCount: result.coverage,
+      totalFactors: result.total,
+    };
+    if (ex) {
+      toUpdate.push(row);
+    } else {
+      toInsert.push(row);
+    }
+  }
+
+  if (toInsert.length > 0 || toUpdate.length > 0) {
+    await db.transaction(async (tx) => {
+      // Bulk insert in chunks.
+      const CHUNK = 200;
+      for (let i = 0; i < toInsert.length; i += CHUNK) {
+        const slice = toInsert.slice(i, i + CHUNK);
+        await tx.insert(personalRatings).values(
+          slice.map((r) => ({
+            managerId,
+            realPlayerId: r.realPlayerId,
+            sourceProfileId: input.profileId,
+            overrides: null,
+            score: r.score,
+            coverageCount: r.coverageCount,
+            totalFactors: r.totalFactors,
+          }))
+        );
+        inserted += slice.length;
+      }
+      // Bulk updates — drizzle doesn't have multi-row update so issue
+      // one per row. ~30 players = quick. ~1213 still under a few sec.
+      for (const r of toUpdate) {
+        await tx
+          .update(personalRatings)
+          .set({
+            sourceProfileId: input.profileId,
+            overrides: null,
+            score: r.score,
+            coverageCount: r.coverageCount,
+            totalFactors: r.totalFactors,
+            computedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(personalRatings.managerId, managerId),
+              eq(personalRatings.realPlayerId, r.realPlayerId)
+            )
+          );
+        updated++;
+      }
+    });
+  }
+
+  revalidatePath("/players");
+  revalidatePath("/scouting/profiles");
+  return {
+    matched: candidateIds.length,
+    inserted,
+    updated,
+    skipped,
+  };
 }
