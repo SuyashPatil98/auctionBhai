@@ -73,10 +73,10 @@ export const drafts = pgTable("drafts", {
 
   // Timing
   nominateSeconds: smallint("nominate_seconds").notNull().default(30),
-  bidSeconds: smallint("bid_seconds").notNull().default(20),
+  bidSeconds: smallint("bid_seconds").notNull().default(45),
   antisnipeTriggerSeconds: smallint("antisnipe_trigger_seconds")
     .notNull()
-    .default(10),
+    .default(15),
   antisnipeExtendSeconds: smallint("antisnipe_extend_seconds")
     .notNull()
     .default(15),
@@ -205,6 +205,31 @@ export const proxyBids = pgTable(
 );
 
 export type ProxyBid = typeof proxyBids.$inferSelect;
+
+// ============================================================================
+// auction_lot_passes — managers who have opted out of bidding on this lot
+// ============================================================================
+
+export const auctionLotPasses = pgTable(
+  "auction_lot_passes",
+  {
+    lotId: uuid("lot_id")
+      .notNull()
+      .references(() => auctionLots.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    passedAt: timestamp("passed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.lotId, t.profileId] }),
+    index("auction_lot_passes_lot_idx").on(t.lotId),
+  ]
+);
+
+export type AuctionLotPass = typeof auctionLotPasses.$inferSelect;
 
 // ============================================================================
 // manager_budgets — cached running totals, trigger-maintained

@@ -3,6 +3,7 @@ import { and, asc, desc, eq, isNull, ne, notInArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   auctionBids,
+  auctionLotPasses,
   auctionLots,
   countries,
   drafts,
@@ -173,6 +174,7 @@ export default async function DraftPage({
 
   // My proxy on the current lot (if any)
   let myProxyMax: number | null = null;
+  let passedProfileIds: string[] = [];
   if (currentLot) {
     const [p] = await db
       .select()
@@ -185,6 +187,12 @@ export default async function DraftPage({
       )
       .limit(1);
     myProxyMax = p?.maxAmount ?? null;
+
+    const passes = await db
+      .select({ profileId: auctionLotPasses.profileId })
+      .from(auctionLotPasses)
+      .where(eq(auctionLotPasses.lotId, currentLot.id));
+    passedProfileIds = passes.map((p) => p.profileId);
   }
 
   // My budget context
@@ -273,6 +281,7 @@ export default async function DraftPage({
     availablePlayers,
     myMaxBidNow,
     myProxyMax,
+    passedProfileIds,
     searchQuery: q ?? "",
     bidError: bidError ?? null,
   };

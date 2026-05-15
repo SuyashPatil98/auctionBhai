@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   nominate,
+  passLot,
   placeBid,
   resolveExpired,
   setProxy,
@@ -87,6 +88,7 @@ export type AuctionRoomProps = {
   availablePlayers: AvailablePlayer[];
   myMaxBidNow: number;
   myProxyMax: number | null;
+  passedProfileIds: string[];
   searchQuery: string;
   bidError: string | null;
 };
@@ -173,6 +175,15 @@ export default function AuctionRoom(props: AuctionRoomProps) {
         },
         () => router.refresh()
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "auction_lot_passes",
+        },
+        () => router.refresh()
+      )
       .subscribe();
 
     return () => {
@@ -214,6 +225,13 @@ export default function AuctionRoom(props: AuctionRoomProps) {
     () => new Map(props.budgets.map((b) => [b.profileId, b])),
     [props.budgets]
   );
+  const passedSet = useMemo(
+    () => new Set(props.passedProfileIds),
+    [props.passedProfileIds]
+  );
+  const iHavePassed = passedSet.has(props.userId);
+  const iAmHighBidder =
+    props.currentLot?.currentBidderId === props.userId;
   const isCurrentNominator =
     props.draft.currentNominatorProfileId === props.userId;
   const isMember = props.members.some((m) => m.profileId === props.userId);
@@ -255,6 +273,7 @@ export default function AuctionRoom(props: AuctionRoomProps) {
             const isMe = m.profileId === props.userId;
             const isTurn =
               m.profileId === props.draft.currentNominatorProfileId;
+            const hasPassedThisLot = passedSet.has(m.profileId);
             return (
               <div
                 key={m.profileId}
@@ -262,9 +281,9 @@ export default function AuctionRoom(props: AuctionRoomProps) {
                   isTurn
                     ? "border-emerald-500/50 bg-emerald-500/5"
                     : "border-border bg-card"
-                }`}
+                } ${hasPassedThisLot ? "opacity-60" : ""}`}
               >
-                <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center justify-between text-sm gap-2">
                   <span className="font-medium truncate">
                     {m.teamEmoji} {m.displayName}
                     {isMe && (
@@ -273,11 +292,18 @@ export default function AuctionRoom(props: AuctionRoomProps) {
                       </span>
                     )}
                   </span>
-                  {isTurn && (
-                    <span className="text-[10px] uppercase tracking-wider text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
-                      Nominating
-                    </span>
-                  )}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {hasPassedThisLot && (
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                        ⊘ passed
+                      </span>
+                    )}
+                    {isTurn && (
+                      <span className="text-[10px] uppercase tracking-wider text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
+                        Nominating
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="mt-2 flex items-baseline justify-between">
                   <span className="text-2xl font-semibold tabular-nums">
@@ -316,7 +342,10 @@ export default function AuctionRoom(props: AuctionRoomProps) {
           <div className="rounded-2xl border border-border bg-card p-5 space-y-4 relative overflow-hidden">
             {/* Timer ribbon */}
             {secondsRemaining !== null && (
-              <CountdownBar seconds={secondsRemaining} />
+              <CountdownBar
+                seconds={secondsRemaining}
+                total={props.draft.bidSeconds}
+              />
             )}
 
             <div className="flex items-start justify-between gap-4">
@@ -357,20 +386,32 @@ export default function AuctionRoom(props: AuctionRoomProps) {
 
             {isMember && props.draft.status === "live" && (
               <>
-                <BidForm
-                  lotId={props.currentLot.id}
-                  minNext={minNext}
-                  maxBid={props.myMaxBidNow}
-                  isHighBidder={
-                    props.currentLot.currentBidderId === props.userId
-                  }
-                />
-                <ProxyForm
-                  lotId={props.currentLot.id}
-                  minNext={minNext}
-                  maxBid={props.myMaxBidNow}
-                  existingMax={props.myProxyMax}
-                />
+                {iHavePassed ? (
+                  <div className="pt-2 border-t border-border text-sm text-muted-foreground">
+                    ⊘ You passed on this lot. Waiting for the rest.
+                  </div>
+                ) : (
+                  <>
+                    <BidForm
+                      lotId={props.currentLot.id}
+                      minNext={minNext}
+                      maxBid={props.myMaxBidNow}
+                      isHighBidder={iAmHighBidder}
+                    />
+                    <ProxyForm
+                      lotId={props.currentLot.id}
+                      minNext={minNext}
+                      maxBid={props.myMaxBidNow}
+                      existingMax={props.myProxyMax}
+                    />
+                    {!iAmHighBidder && (
+                      <PassButton
+                        lotId={props.currentLot.id}
+                        playerName={props.currentLot.playerName}
+                      />
+                    )}
+                  </>
+                )}
               </>
             )}
           </div>
@@ -488,13 +529,20 @@ function Header({ draft }: { draft: DraftState }) {
   );
 }
 
-function CountdownBar({ seconds }: { seconds: number }) {
-  // Visual urgency: green > yellow > red as time runs out (default 20s)
-  const pct = Math.max(0, Math.min(100, (seconds / 20) * 100));
+function CountdownBar({
+  seconds,
+  total,
+}: {
+  seconds: number;
+  total: number;
+}) {
+  // Visual urgency: green > yellow > red as time runs out. `total` is the
+  // draft's bidSeconds (currently 45) so the bar scales correctly.
+  const pct = Math.max(0, Math.min(100, (seconds / total) * 100));
   const color =
     seconds <= 3
       ? "bg-red-500"
-      : seconds <= 8
+      : seconds <= 10
       ? "bg-amber-500"
       : "bg-emerald-500";
   return (
@@ -535,6 +583,7 @@ function BidForm({
   isHighBidder: boolean;
 }) {
   const [amount, setAmount] = useState(minNext);
+  const [isPending, startTransition] = useTransition();
 
   // When the lot's minNext changes (server pushed a bid), bump our input
   // to keep it valid.
@@ -542,11 +591,20 @@ function BidForm({
     setAmount((prev) => Math.max(minNext, prev));
   }, [minNext]);
 
-  const disabled = isHighBidder || amount < minNext || amount > maxBid;
+  const disabled =
+    isHighBidder || amount < minNext || amount > maxBid || isPending;
 
   return (
     <form
-      action={placeBid}
+      action={(formData) => {
+        // Optimistic UX: disable + show "bidding…" instantly via useTransition,
+        // so the user sees feedback during the ~300–800ms server roundtrip.
+        // Server is still authoritative — if rejected, page re-renders with
+        // bidError set and this transition unwinds.
+        startTransition(() => {
+          placeBid(formData);
+        });
+      }}
       className="flex flex-wrap items-end gap-2 pt-2 border-t border-border"
     >
       <input type="hidden" name="lot_id" value={lotId} />
@@ -560,10 +618,11 @@ function BidForm({
           value={amount}
           min={minNext}
           max={maxBid}
+          disabled={isPending}
           onChange={(e) =>
             setAmount(Number.parseInt(e.target.value, 10) || minNext)
           }
-          className="rounded-md border border-input bg-background px-3 py-1.5 w-32 tabular-nums"
+          className="rounded-md border border-input bg-background px-3 py-1.5 w-32 tabular-nums disabled:opacity-50"
         />
       </label>
       <QuickBids
@@ -571,13 +630,18 @@ function BidForm({
         minNext={minNext}
         maxBid={maxBid}
         onSet={setAmount}
+        disabled={isPending}
       />
       <button
         type="submit"
         disabled={disabled}
-        className="rounded-md bg-primary text-primary-foreground px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition"
+        className="rounded-md bg-primary text-primary-foreground px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition min-w-[100px]"
       >
-        {isHighBidder ? "You're high" : `Bid ${amount}`}
+        {isPending
+          ? "Bidding…"
+          : isHighBidder
+          ? "You're high"
+          : `Bid ${amount}`}
       </button>
     </form>
   );
@@ -588,11 +652,13 @@ function QuickBids({
   minNext,
   maxBid,
   onSet,
+  disabled,
 }: {
   current: number;
   minNext: number;
   maxBid: number;
   onSet: (n: number) => void;
+  disabled?: boolean;
 }) {
   const bumps = [1, 5, 10];
   return (
@@ -604,7 +670,7 @@ function QuickBids({
             key={b}
             type="button"
             onClick={() => onSet(target)}
-            disabled={target > maxBid}
+            disabled={disabled || target > maxBid}
             className="rounded border border-border bg-background px-2 py-1.5 text-xs hover:bg-muted disabled:opacity-30 transition"
           >
             +{b}
@@ -614,7 +680,7 @@ function QuickBids({
       <button
         type="button"
         onClick={() => onSet(maxBid)}
-        disabled={maxBid <= current}
+        disabled={disabled || maxBid <= current}
         className="rounded border border-border bg-background px-2 py-1.5 text-xs hover:bg-muted disabled:opacity-30 transition"
       >
         MAX
@@ -634,53 +700,114 @@ function ProxyForm({
   maxBid: number;
   existingMax: number | null;
 }) {
-  const [open, setOpen] = useState(existingMax !== null);
-  const [value, setValue] = useState(existingMax ?? Math.min(maxBid, minNext + 10));
+  const [value, setValue] = useState(
+    existingMax ?? Math.min(maxBid, minNext + 10)
+  );
 
-  if (!open && existingMax === null) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="text-xs text-muted-foreground hover:text-foreground transition underline"
+  return (
+    <div className="rounded-md border border-sky-500/40 bg-sky-500/5 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-medium text-sky-700 dark:text-sky-300">
+          🛡️ Set a max bid — never miss out on a slow connection
+        </p>
+        {existingMax !== null && (
+          <span className="text-xs tabular-nums text-sky-700 dark:text-sky-300">
+            active: up to {existingMax}
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        The server auto-bids the minimum needed to keep you on top, up to your
+        max. Immune to your network — recommended for every player you really
+        want.
+      </p>
+      <form
+        action={setProxy}
+        className="flex flex-wrap items-end gap-2 text-xs"
       >
-        + set max-bid (auto-bid)
-      </button>
+        <input type="hidden" name="lot_id" value={lotId} />
+        <label className="flex flex-col">
+          <span className="text-muted-foreground mb-1">My max bid</span>
+          <input
+            type="number"
+            name="max_amount"
+            value={value}
+            min={minNext}
+            max={maxBid}
+            onChange={(e) =>
+              setValue(Number.parseInt(e.target.value, 10) || minNext)
+            }
+            className="rounded-md border border-input bg-background px-2 py-1 w-28 tabular-nums"
+          />
+        </label>
+        <button
+          type="submit"
+          className="rounded-md border border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300 px-3 py-1.5 hover:bg-sky-500/20 transition font-medium"
+        >
+          {existingMax !== null ? "Update max" : "Set max"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function PassButton({
+  lotId,
+  playerName,
+}: {
+  lotId: string;
+  playerName: string;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [isPending, startTransition] = useTransition();
+
+  if (!confirming) {
+    return (
+      <div className="pt-2">
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className="text-xs text-muted-foreground hover:text-destructive underline transition"
+        >
+          ⊘ Pass on this lot
+        </button>
+      </div>
     );
   }
 
   return (
-    <form
-      action={setProxy}
-      className="flex flex-wrap items-end gap-2 pt-1 text-xs"
-    >
-      <input type="hidden" name="lot_id" value={lotId} />
-      <label className="flex flex-col">
-        <span className="text-muted-foreground mb-1">
-          Auto-bid up to (current proxy: {existingMax ?? "—"})
-        </span>
-        <input
-          type="number"
-          name="max_amount"
-          value={value}
-          min={minNext}
-          max={maxBid}
-          onChange={(e) =>
-            setValue(Number.parseInt(e.target.value, 10) || minNext)
-          }
-          className="rounded-md border border-input bg-background px-2 py-1 w-24 tabular-nums"
-        />
-      </label>
-      <button
-        type="submit"
-        className="rounded border border-border bg-background px-2 py-1 hover:bg-muted transition"
-      >
-        Save proxy
-      </button>
-      <p className="text-muted-foreground/70">
-        The system bids minimum required to stay top, up to your max.
+    <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 space-y-2">
+      <p className="text-sm font-medium">
+        Pass on <span className="font-semibold">{playerName}</span>?
       </p>
-    </form>
+      <p className="text-xs text-muted-foreground">
+        Passing is <strong>final</strong> for this lot — you won&apos;t be able
+        to bid on this player again. Any max-bid you&apos;ve set will be
+        cancelled. If everyone else passes, the lot closes immediately.
+      </p>
+      <div className="flex items-center gap-2 pt-1">
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() =>
+            startTransition(() => {
+              passLot(lotId);
+            })
+          }
+          className="rounded-md bg-destructive text-destructive-foreground px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-40 transition"
+        >
+          {isPending ? "Passing…" : "Yes, pass"}
+        </button>
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() => setConfirming(false)}
+          className="rounded-md border border-border bg-background px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-40 transition"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }
 

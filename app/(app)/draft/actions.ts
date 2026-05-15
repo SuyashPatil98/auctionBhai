@@ -6,6 +6,7 @@ import { and, count, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   auctionBids,
+  auctionLotPasses,
   auctionLots,
   drafts,
   leagueMembers,
@@ -450,6 +451,137 @@ export async function setProxy(formData: FormData) {
 
     // Run resolution — proxy might fire immediately.
     await resolveProxiesOnLot(tx, lot.id);
+  });
+
+  revalidatePath("/draft");
+}
+
+// ============================================================================
+// passLot — manager opts out of bidding on this lot. If all eligible bidders
+// (everyone except the current leader) have passed, the lot closes
+// immediately: sold to the leader at current_bid, or marked passed if nobody
+// bid. Cancels the passer's proxy on this lot.
+// ============================================================================
+
+export async function passLot(lotId: string) {
+  const profileId = await requireAuthedProfile();
+  if (!lotId) throw new Error("missing lot_id");
+
+  await db.transaction(async (tx) => {
+    const [lot] = (await tx.execute(sql`
+      select id, draft_id, current_bid, current_bidder_id, status
+      from auction_lots
+      where id = ${lotId} for update
+    `)) as unknown as Array<{
+      id: string;
+      draft_id: string;
+      current_bid: number;
+      current_bidder_id: string | null;
+      status: string;
+    }>;
+    if (!lot) throw new Error("lot not found");
+    if (lot.status !== "open" && lot.status !== "closing") {
+      // Already resolved — pass is a no-op.
+      return;
+    }
+    if (lot.current_bidder_id === profileId) {
+      throw new Error("you are the current high bidder — cannot pass");
+    }
+
+    const [draft] = await tx
+      .select()
+      .from(drafts)
+      .where(eq(drafts.id, lot.draft_id))
+      .limit(1);
+    if (!draft || draft.status !== "live") {
+      throw new Error("draft not live");
+    }
+
+    // Record the pass (idempotent on repeat clicks).
+    await tx
+      .insert(auctionLotPasses)
+      .values({ lotId: lot.id, profileId })
+      .onConflictDoNothing();
+
+    // Cancel any proxy this manager had on this lot — passing means out.
+    await tx
+      .delete(proxyBids)
+      .where(
+        and(eq(proxyBids.lotId, lot.id), eq(proxyBids.profileId, profileId))
+      );
+
+    // Early-close check: members minus passers minus current-leader.
+    const [{ n: memberCount }] = await tx
+      .select({ n: count() })
+      .from(leagueMembers)
+      .where(eq(leagueMembers.leagueId, draft.leagueId));
+
+    const [{ n: passCount }] = await tx
+      .select({ n: count() })
+      .from(auctionLotPasses)
+      .where(eq(auctionLotPasses.lotId, lot.id));
+
+    const leaderIsInPool = lot.current_bidder_id ? 1 : 0;
+    const eligibleRemaining = memberCount - passCount - leaderIsInPool;
+
+    if (eligibleRemaining > 0) return; // Lot stays open.
+
+    // All eligible bidders have passed — close the lot.
+    if (lot.current_bidder_id) {
+      // Sold to leader. handle_lot_sold trigger materializes roster + budget.
+      await tx
+        .update(auctionLots)
+        .set({ status: "sold", soldAt: new Date() })
+        .where(eq(auctionLots.id, lot.id));
+    } else {
+      await tx
+        .update(auctionLots)
+        .set({ status: "passed" })
+        .where(eq(auctionLots.id, lot.id));
+    }
+
+    // Advance nominator + clear current_lot_id (mirrors finalizeExpiredLots).
+    const members = await tx
+      .select()
+      .from(leagueMembers)
+      .where(eq(leagueMembers.leagueId, draft.leagueId));
+
+    const budgets = await tx
+      .select()
+      .from(managerBudgets)
+      .where(eq(managerBudgets.draftId, draft.id));
+    const slotsFilledByProfile = new Map(
+      budgets.map((b) => [b.profileId, b.slotsFilled])
+    );
+
+    const next = nextNominator({
+      members: members.map((m) => ({
+        profileId: m.profileId,
+        nominationOrder: m.nominationOrder,
+      })),
+      slotsFilledByProfile,
+      rosterSize: draft.rosterSize,
+      previousNominatorId: draft.currentNominatorProfileId,
+    });
+
+    if (next === null) {
+      await tx
+        .update(drafts)
+        .set({
+          status: "complete",
+          completedAt: new Date(),
+          currentLotId: null,
+        })
+        .where(eq(drafts.id, draft.id));
+    } else {
+      await tx
+        .update(drafts)
+        .set({
+          currentNominatorProfileId: next,
+          currentLotId: null,
+        })
+        .where(eq(drafts.id, draft.id));
+    }
   });
 
   revalidatePath("/draft");
