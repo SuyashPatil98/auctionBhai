@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   auctionLots,
@@ -10,6 +10,7 @@ import {
   drafts,
   leagueMembers,
   managerBudgets,
+  ratingProfiles,
   rosters,
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
@@ -298,6 +299,12 @@ export async function resetDraft(formData: FormData) {
       })
       .where(eq(drafts.id, draftId));
 
+    // Unlock scouting profiles so managers can re-tune before the next try.
+    await tx
+      .update(ratingProfiles)
+      .set({ lockedAt: null })
+      .where(isNotNull(ratingProfiles.lockedAt));
+
     await tx.insert(auditLog).values({
       actorProfileId: actor,
       action: "draft.reset",
@@ -310,6 +317,7 @@ export async function resetDraft(formData: FormData) {
   });
   revalidatePath("/draft");
   revalidatePath("/draft/admin");
+  revalidatePath("/scouting/profiles");
 }
 
 // silence

@@ -12,9 +12,11 @@ import {
   leagueMembers,
   managerBudgets,
   proxyBids,
+  ratingProfiles,
   realPlayers,
   rosters,
 } from "@/lib/db/schema";
+import { isNull } from "drizzle-orm";
 import { createClient } from "@/lib/supabase/server";
 import {
   maxBidNow,
@@ -111,17 +113,27 @@ export async function startDraft(draftId: string) {
   const sorted = [...members].sort(
     (a, b) => a.nominationOrder - b.nominationOrder
   );
+  const now = new Date();
   await db
     .update(drafts)
     .set({
       status: "live",
-      startedAt: new Date(),
+      startedAt: now,
       currentNominatorProfileId: sorted[0].profileId,
     })
     .where(eq(drafts.id, d.id));
 
+  // Freeze any scouting profiles created up to this point. mutations are
+  // already blocked by assertNotLocked() on draft.status alone, but stamping
+  // locked_at gives the recap UI a real "frozen at" timestamp to show.
+  await db
+    .update(ratingProfiles)
+    .set({ lockedAt: now })
+    .where(isNull(ratingProfiles.lockedAt));
+
   void userId;
   revalidatePath("/draft");
+  revalidatePath("/scouting/profiles");
 }
 
 // ============================================================================

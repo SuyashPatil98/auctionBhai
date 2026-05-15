@@ -161,11 +161,21 @@ export default async function ScoutingProfilesPage() {
       )}
 
       {locked && (
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
-          <strong>Profiles locked.</strong> The draft is{" "}
-          <code>{draft?.status}</code> — formulas froze when the auction
-          started, so people couldn&apos;t reweight mid-draft to chase
-          players.
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-4 text-sm space-y-2">
+          <p>
+            <strong>Profiles locked.</strong> The draft is{" "}
+            <code>{draft?.status}</code> — formulas froze when the auction
+            started, so people couldn&apos;t reweight mid-draft to chase
+            players.
+          </p>
+          <p>
+            <a
+              href="/draft/recap/scouting"
+              className="underline text-foreground hover:text-primary"
+            >
+              See everyone&apos;s formulas →
+            </a>
+          </p>
         </div>
       )}
 
