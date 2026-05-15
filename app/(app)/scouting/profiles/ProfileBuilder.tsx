@@ -4,6 +4,8 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   applyProfileBulk,
+  clearAllMyRatings,
+  clearRatingsForProfile,
   createProfile,
   deleteProfile,
   updateProfile,
@@ -32,6 +34,8 @@ export type SavedProfile = {
   factors: Array<{ factor_id: string; importance: Importance }>;
   lockedAt: string | null;
   updatedAt: string;
+  /** How many players are currently rated via this formula */
+  ratingCount: number;
 };
 
 export type PreviewPlayer = {
@@ -54,6 +58,8 @@ export type ProfileBuilderProps = {
   savedProfiles: SavedProfile[];
   previewPlayer: PreviewPlayer | null;
   previewPercentiles: PercentileRow[];
+  /** Total ratings across all this manager's profiles + overrides */
+  totalRated: number;
 };
 
 // ============================================================================
@@ -144,20 +150,67 @@ export default function ProfileBuilder(props: ProfileBuilderProps) {
       {/* Left column: editor or saved list */}
       <div className="space-y-4">
         {editor === null ? (
-          <SavedList
-            profiles={props.savedProfiles}
-            disabled={disabled}
-            onNew={() => setEditor(blankEditor())}
-            onEdit={(p) => setEditor(fromSaved(p))}
-            onDelete={(p) => {
-              if (!confirm(`Delete "${p.name}"? This can't be undone.`)) return;
-              startTransition(() => {
-                deleteProfile(p.id)
-                  .then(() => router.refresh())
-                  .catch((e) => setError(String(e.message ?? e)));
-              });
-            }}
-          />
+          <>
+            {props.totalRated > 0 && !props.locked && (
+              <ResetAllBar
+                totalRated={props.totalRated}
+                disabled={disabled}
+                onReset={() => {
+                  if (
+                    !confirm(
+                      `Reset all ${props.totalRated} of your ratings? You'll keep your formulas — just the per-player ratings get cleared. This can't be undone.`
+                    )
+                  )
+                    return;
+                  startTransition(() => {
+                    clearAllMyRatings()
+                      .then((r) => {
+                        setError(null);
+                        router.refresh();
+                        // Optionally show a toast — for now silent + router.refresh
+                        void r;
+                      })
+                      .catch((e) => setError(String(e.message ?? e)));
+                  });
+                }}
+              />
+            )}
+            <SavedList
+              profiles={props.savedProfiles}
+              disabled={disabled}
+              onNew={() => setEditor(blankEditor())}
+              onEdit={(p) => setEditor(fromSaved(p))}
+              onDelete={(p) => {
+                if (
+                  !confirm(`Delete "${p.name}"? This can't be undone.`)
+                )
+                  return;
+                startTransition(() => {
+                  deleteProfile(p.id)
+                    .then(() => router.refresh())
+                    .catch((e) => setError(String(e.message ?? e)));
+                });
+              }}
+              onClear={(p) => {
+                if (
+                  !confirm(
+                    `Clear ${p.ratingCount} player rating${p.ratingCount === 1 ? "" : "s"} applied via "${p.name}"? The formula stays — just the ratings get removed.`
+                  )
+                )
+                  return;
+                startTransition(() => {
+                  clearRatingsForProfile(p.id)
+                    .then(() => router.refresh())
+                    .catch((e) => setError(String(e.message ?? e)));
+                });
+              }}
+            />
+            {error && (
+              <p className="text-sm text-destructive rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
+                {error}
+              </p>
+            )}
+          </>
         ) : (
           <Editor
             state={editor}
@@ -239,18 +292,52 @@ export default function ProfileBuilder(props: ProfileBuilderProps) {
 // SavedList
 // ============================================================================
 
+function ResetAllBar({
+  totalRated,
+  disabled,
+  onReset,
+}: {
+  totalRated: number;
+  disabled: boolean;
+  onReset: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-sm">
+      <div className="min-w-0">
+        <p className="font-medium">
+          {totalRated} player rating{totalRated === 1 ? "" : "s"} on your list
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Wipe everything to start over from a blank slate. Your saved
+          formulas stay intact.
+        </p>
+      </div>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onReset}
+        className="rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400 px-3 py-1.5 text-xs font-semibold shrink-0 transition-all hover:bg-amber-500/20 hover:border-amber-500/60 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40"
+      >
+        Reset all ratings
+      </button>
+    </div>
+  );
+}
+
 function SavedList({
   profiles,
   disabled,
   onNew,
   onEdit,
   onDelete,
+  onClear,
 }: {
   profiles: SavedProfile[];
   disabled: boolean;
   onNew: () => void;
   onEdit: (p: SavedProfile) => void;
   onDelete: (p: SavedProfile) => void;
+  onClear: (p: SavedProfile) => void;
 }) {
   return (
     <div className="space-y-3">
@@ -282,6 +369,7 @@ function SavedList({
               disabled={disabled}
               onEdit={() => onEdit(p)}
               onDelete={() => onDelete(p)}
+              onClear={() => onClear(p)}
             />
           ))}
         </div>
@@ -299,11 +387,13 @@ function SavedProfileCard({
   disabled,
   onEdit,
   onDelete,
+  onClear,
 }: {
   profile: SavedProfile;
   disabled: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  onClear: () => void;
 }) {
   return (
     <div className="rounded-lg border border-border bg-card p-4 space-y-3">
@@ -320,6 +410,15 @@ function SavedProfileCard({
             {profile.factors.length === 1 ? "" : "s"} ·{" "}
             {profile.factors.filter((f) => f.importance === "important").length}{" "}
             important
+            {profile.ratingCount > 0 && (
+              <>
+                {" · "}
+                <span className="text-foreground/70">
+                  {profile.ratingCount} player
+                  {profile.ratingCount === 1 ? "" : "s"} rated
+                </span>
+              </>
+            )}
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
@@ -343,6 +442,21 @@ function SavedProfileCard({
       </div>
 
       <BulkApply profile={profile} disabled={disabled} />
+
+      {profile.ratingCount > 0 && (
+        <div className="flex items-center justify-end pt-2 border-t border-border">
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={onClear}
+            className="text-xs text-muted-foreground hover:text-amber-600 dark:hover:text-amber-400 underline-offset-2 hover:underline transition disabled:opacity-40 disabled:cursor-not-allowed"
+            title={`Remove the ${profile.ratingCount} ratings applied via this formula. Formula stays.`}
+          >
+            Clear {profile.ratingCount} rating
+            {profile.ratingCount === 1 ? "" : "s"} from this formula →
+          </button>
+        </div>
+      )}
     </div>
   );
 }

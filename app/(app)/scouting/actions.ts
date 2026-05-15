@@ -613,3 +613,66 @@ export async function applyProfileBulk(input: {
     skipped,
   };
 }
+
+// ============================================================================
+// Clear / reset — bulk removal of personal ratings
+// ============================================================================
+
+/**
+ * Remove every personal_rating row this manager created via the given
+ * profile. Manual overrides set later are also wiped if their
+ * source_profile_id still points to this profile.
+ *
+ * Useful when a manager wants to redo their evaluation for a position —
+ * change the formula, clear the old ratings, re-apply.
+ */
+export async function clearRatingsForProfile(profileId: string): Promise<{
+  deleted: number;
+}> {
+  const managerId = await requireAuthedProfile();
+  await requireLeagueMember(managerId);
+  await assertNotLocked();
+
+  // Verify ownership of the profile.
+  const [profile] = await db
+    .select()
+    .from(ratingProfiles)
+    .where(eq(ratingProfiles.id, profileId))
+    .limit(1);
+  if (!profile) throw new Error("profile not found");
+  if (profile.managerId !== managerId) throw new Error("not your profile");
+
+  const rows = await db
+    .delete(personalRatings)
+    .where(
+      and(
+        eq(personalRatings.managerId, managerId),
+        eq(personalRatings.sourceProfileId, profileId)
+      )
+    )
+    .returning({ id: personalRatings.id });
+
+  revalidatePath("/players");
+  revalidatePath("/scouting/profiles");
+  return { deleted: rows.length };
+}
+
+/**
+ * Wipe ALL of this manager's personal ratings — across every profile,
+ * including manual per-player overrides. Their scouting list goes
+ * fully blank.
+ */
+export async function clearAllMyRatings(): Promise<{ deleted: number }> {
+  const managerId = await requireAuthedProfile();
+  await requireLeagueMember(managerId);
+  await assertNotLocked();
+
+  const rows = await db
+    .delete(personalRatings)
+    .where(eq(personalRatings.managerId, managerId))
+    .returning({ id: personalRatings.id });
+
+  revalidatePath("/players");
+  revalidatePath("/scouting/profiles");
+  return { deleted: rows.length };
+}

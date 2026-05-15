@@ -6,12 +6,14 @@ import {
   drafts,
   leagueMembers,
   leagues,
+  personalRatings,
   playerFactorPercentiles,
   playerPrices,
   ratingProfileFactors,
   ratingProfiles,
   realPlayers,
 } from "@/lib/db/schema";
+import { sql } from "drizzle-orm";
 import { createClient } from "@/lib/supabase/server";
 import ProfileBuilder, {
   type ProfileBuilderProps,
@@ -81,6 +83,36 @@ export default async function ScoutingProfilesPage() {
     }
   }
 
+  // Per-profile rating counts (for the "Clear N ratings" button label).
+  const ratingCounts =
+    profileIds.length > 0
+      ? await db
+          .select({
+            sourceProfileId: personalRatings.sourceProfileId,
+            n: sql<number>`count(*)::int`,
+          })
+          .from(personalRatings)
+          .where(
+            and(
+              eq(personalRatings.managerId, user.id),
+              inArray(personalRatings.sourceProfileId, profileIds)
+            )
+          )
+          .groupBy(personalRatings.sourceProfileId)
+      : [];
+  const ratingCountByProfile = new Map<string, number>();
+  for (const r of ratingCounts) {
+    if (r.sourceProfileId) {
+      ratingCountByProfile.set(r.sourceProfileId, Number(r.n));
+    }
+  }
+
+  // Total ratings across all profiles + overrides
+  const [{ n: totalRated }] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(personalRatings)
+    .where(eq(personalRatings.managerId, user.id));
+
   const savedProfiles: SavedProfile[] = myProfileRows.map((p) => ({
     id: p.id,
     name: p.name,
@@ -88,6 +120,7 @@ export default async function ScoutingProfilesPage() {
     factors: factorsByProfile.get(p.id) ?? [],
     lockedAt: p.lockedAt?.toISOString() ?? null,
     updatedAt: p.updatedAt.toISOString(),
+    ratingCount: ratingCountByProfile.get(p.id) ?? 0,
   }));
 
   // Default preview player = the highest-priced active player.
@@ -138,6 +171,7 @@ export default async function ScoutingProfilesPage() {
     savedProfiles,
     previewPlayer,
     previewPercentiles,
+    totalRated: Number(totalRated),
   };
 
   return (
