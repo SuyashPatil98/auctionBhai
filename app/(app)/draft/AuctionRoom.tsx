@@ -194,10 +194,12 @@ export default function AuctionRoom(props: AuctionRoomProps) {
   const secondsRemaining =
     closesAtMs !== null ? Math.max(0, (closesAtMs - now) / 1000) : null;
 
-  // Auto-fire the server tick when timer hits 0 (only once per lot)
+  // Auto-fire the server tick when timer hits 0 (only once per lot).
+  // Don't fire when paused — the server pauses closes_at clock semantically.
   useEffect(() => {
     if (
       props.currentLot &&
+      props.draft.status === "live" &&
       secondsRemaining !== null &&
       secondsRemaining <= 0 &&
       tickFiredRef.current !== props.currentLot.id
@@ -205,7 +207,7 @@ export default function AuctionRoom(props: AuctionRoomProps) {
       tickFiredRef.current = props.currentLot.id;
       void resolveExpired(props.draft.id).catch(() => {});
     }
-  }, [secondsRemaining, props.currentLot, props.draft.id]);
+  }, [secondsRemaining, props.currentLot, props.draft.id, props.draft.status]);
 
   // --- derived state -------------------------------------------------------
   const budgetByProfile = useMemo(
@@ -222,6 +224,16 @@ export default function AuctionRoom(props: AuctionRoomProps) {
   return (
     <div className="space-y-6">
       <Header draft={props.draft} />
+
+      {props.draft.status === "paused" && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+          <strong>⏸ Paused.</strong> Bidding is frozen until a commissioner
+          resumes the draft.{" "}
+          <a href="/draft/admin" className="underline">
+            Admin →
+          </a>
+        </div>
+      )}
 
       {props.bidError && (
         <p className="text-sm text-destructive rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
@@ -294,8 +306,9 @@ export default function AuctionRoom(props: AuctionRoomProps) {
         </div>
       </section>
 
-      {/* Current lot */}
-      {props.draft.status === "live" && props.currentLot && (
+      {/* Current lot — shown in live AND paused states (paused freezes the form) */}
+      {(props.draft.status === "live" || props.draft.status === "paused") &&
+        props.currentLot && (
         <section className="space-y-3">
           <h2 className="text-xs uppercase tracking-widest text-muted-foreground">
             On the block · lot #{props.currentLot.lotNumber}
@@ -332,11 +345,17 @@ export default function AuctionRoom(props: AuctionRoomProps) {
 
             {secondsRemaining !== null && (
               <p className="text-sm tabular-nums">
-                <CountdownText seconds={secondsRemaining} />
+                {props.draft.status === "paused" ? (
+                  <span className="text-amber-600 dark:text-amber-400">
+                    ⏸ paused
+                  </span>
+                ) : (
+                  <CountdownText seconds={secondsRemaining} />
+                )}
               </p>
             )}
 
-            {isMember && (
+            {isMember && props.draft.status === "live" && (
               <>
                 <BidForm
                   lotId={props.currentLot.id}
@@ -360,7 +379,7 @@ export default function AuctionRoom(props: AuctionRoomProps) {
             <BidLog bids={props.recentBids} />
           )}
         </section>
-      )}
+        )}
 
       {/* Nominate form */}
       {props.draft.status === "live" &&
@@ -452,11 +471,19 @@ function Header({ draft }: { draft: DraftState }) {
         <h1 className="text-2xl font-semibold tracking-tight">Draft</h1>
         <p className="text-sm text-muted-foreground">{draft.leagueName}</p>
       </div>
-      <span
-        className={`text-xs uppercase tracking-wider font-medium px-2 py-1 rounded ${pill[draft.status]}`}
-      >
-        {draft.status}
-      </span>
+      <div className="flex items-center gap-3">
+        <a
+          href="/draft/admin"
+          className="text-xs text-muted-foreground hover:text-foreground transition underline"
+        >
+          Admin
+        </a>
+        <span
+          className={`text-xs uppercase tracking-wider font-medium px-2 py-1 rounded ${pill[draft.status]}`}
+        >
+          {draft.status}
+        </span>
+      </div>
     </div>
   );
 }

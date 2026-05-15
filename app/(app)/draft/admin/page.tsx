@@ -1,0 +1,310 @@
+import { redirect } from "next/navigation";
+import { asc, desc, eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import {
+  auctionLots,
+  auditLog,
+  countries,
+  drafts,
+  leagueMembers,
+  leagues,
+  profiles,
+  realPlayers,
+} from "@/lib/db/schema";
+import { createClient } from "@/lib/supabase/server";
+import {
+  manualAwardLot,
+  pauseDraft,
+  resetDraft,
+  resumeDraft,
+  voidLot,
+} from "./actions";
+import Link from "next/link";
+
+export const dynamic = "force-dynamic";
+
+export const metadata = { title: "Draft admin · FiFantasy" };
+
+export default async function DraftAdminPage() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const [league] = await db.select().from(leagues).limit(1);
+  if (!league) return <p>No league.</p>;
+  const [d] = await db
+    .select()
+    .from(drafts)
+    .where(eq(drafts.leagueId, league.id))
+    .limit(1);
+  if (!d) return <p>No draft.</p>;
+
+  const members = await db
+    .select({
+      profileId: leagueMembers.profileId,
+      displayName: profiles.displayName,
+    })
+    .from(leagueMembers)
+    .innerJoin(profiles, eq(profiles.id, leagueMembers.profileId))
+    .where(eq(leagueMembers.leagueId, league.id))
+    .orderBy(asc(leagueMembers.nominationOrder));
+
+  let currentLot:
+    | (typeof auctionLots.$inferSelect & {
+        playerName: string;
+        countryName: string;
+      })
+    | null = null;
+  if (d.currentLotId) {
+    const [row] = await db
+      .select({
+        lot: auctionLots,
+        playerName: realPlayers.displayName,
+        countryName: countries.name,
+      })
+      .from(auctionLots)
+      .innerJoin(realPlayers, eq(realPlayers.id, auctionLots.realPlayerId))
+      .innerJoin(countries, eq(countries.id, realPlayers.countryId))
+      .where(eq(auctionLots.id, d.currentLotId))
+      .limit(1);
+    if (row) {
+      currentLot = {
+        ...row.lot,
+        playerName: row.playerName,
+        countryName: row.countryName,
+      };
+    }
+  }
+
+  const recentAudit = await db
+    .select()
+    .from(auditLog)
+    .orderBy(desc(auditLog.createdAt))
+    .limit(15);
+
+  return (
+    <div className="space-y-6 max-w-3xl">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Draft admin
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Draft <code className="text-xs">{d.id.slice(0, 8)}</code> · status{" "}
+          <strong>{d.status}</strong>
+          {d.status === "paused" && d.pausedAt && (
+            <> · paused at {new Date(d.pausedAt).toLocaleTimeString()}</>
+          )}
+        </p>
+        <p className="text-xs text-muted-foreground mt-1">
+          Every action below is logged to <code>audit_log</code>. For 4
+          friends, that&apos;s the dispute-resolution mechanism.
+        </p>
+      </div>
+
+      <Section title="Pause / Resume">
+        <div className="flex gap-2">
+          <form action={pauseDraft}>
+            <input type="hidden" name="draft_id" value={d.id} />
+            <button
+              type="submit"
+              disabled={d.status !== "live"}
+              className={btn("amber")}
+            >
+              Pause draft
+            </button>
+          </form>
+          <form action={resumeDraft}>
+            <input type="hidden" name="draft_id" value={d.id} />
+            <button
+              type="submit"
+              disabled={d.status !== "paused"}
+              className={btn("emerald")}
+            >
+              Resume draft
+            </button>
+          </form>
+        </div>
+      </Section>
+
+      {currentLot && (
+        <>
+          <Section title="Current lot controls">
+            <p className="text-sm text-muted-foreground">
+              <strong>{currentLot.playerName}</strong> ({currentLot.countryName}){" "}
+              · current bid {currentLot.currentBid} · status{" "}
+              <code>{currentLot.status}</code>
+            </p>
+          </Section>
+
+          <Section title="Void current lot">
+            <form action={voidLot} className="flex flex-wrap items-end gap-2">
+              <input type="hidden" name="lot_id" value={currentLot.id} />
+              <label className="flex flex-col flex-1 min-w-[12rem]">
+                <span className="text-xs text-muted-foreground mb-1">
+                  Reason (audit-logged)
+                </span>
+                <input
+                  type="text"
+                  name="reason"
+                  placeholder="misclick / disconnect / etc."
+                  className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                />
+              </label>
+              <button type="submit" className={btn("rose")}>
+                Void
+              </button>
+            </form>
+            <p className="text-xs text-muted-foreground mt-2">
+              Returns the player to the pool. No budget or roster change.
+              Current nominator picks again.
+            </p>
+          </Section>
+
+          <Section title="Manual award (use sparingly)">
+            <form
+              action={manualAwardLot}
+              className="grid sm:grid-cols-[1fr_auto_auto] gap-2 items-end"
+            >
+              <input type="hidden" name="lot_id" value={currentLot.id} />
+              <label className="flex flex-col">
+                <span className="text-xs text-muted-foreground mb-1">
+                  Award to
+                </span>
+                <select
+                  name="winner_id"
+                  className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                  required
+                >
+                  {members.map((m) => (
+                    <option key={m.profileId} value={m.profileId}>
+                      {m.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col">
+                <span className="text-xs text-muted-foreground mb-1">
+                  Price
+                </span>
+                <input
+                  type="number"
+                  name="amount"
+                  defaultValue={currentLot.currentBid}
+                  min={1}
+                  className="rounded-md border border-input bg-background px-3 py-1.5 w-24 tabular-nums text-sm"
+                />
+              </label>
+              <button type="submit" className={btn("amber")}>
+                Force-award
+              </button>
+            </form>
+            <p className="text-xs text-muted-foreground mt-2">
+              Sets the lot as sold to the chosen manager at the chosen price.
+              Roster + budget update via trigger. Use when the timer broke,
+              a disconnect cost someone fairly, or you need to unstick the draft.
+            </p>
+          </Section>
+        </>
+      )}
+
+      <Section title="Reset draft (destructive)">
+        <form action={resetDraft} className="flex flex-wrap items-end gap-2">
+          <input type="hidden" name="draft_id" value={d.id} />
+          <label className="flex flex-col">
+            <span className="text-xs text-muted-foreground mb-1">
+              Type RESET to confirm
+            </span>
+            <input
+              type="text"
+              name="confirm"
+              placeholder="RESET"
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm w-32"
+            />
+          </label>
+          <button type="submit" className={btn("rose")}>
+            Reset everything
+          </button>
+        </form>
+        <p className="text-xs text-muted-foreground mt-2">
+          Wipes all lots, bids, proxies, budgets, and auction-acquired rosters
+          for this league. Sets the draft back to <code>scheduled</code>.
+          Use this only for dry-runs.
+        </p>
+      </Section>
+
+      <Section title="Recent audit log">
+        {recentAudit.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No admin actions yet.</p>
+        ) : (
+          <div className="rounded-lg border border-border overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-muted/50 text-muted-foreground">
+                <tr>
+                  <th className="text-left px-2 py-1.5">When</th>
+                  <th className="text-left px-2 py-1.5">Action</th>
+                  <th className="text-left px-2 py-1.5">Entity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentAudit.map((a) => (
+                  <tr key={a.id} className="border-t border-border">
+                    <td className="px-2 py-1.5 tabular-nums">
+                      {new Date(a.createdAt).toLocaleString()}
+                    </td>
+                    <td className="px-2 py-1.5">{a.action}</td>
+                    <td className="px-2 py-1.5 text-muted-foreground">
+                      {a.entity}{" "}
+                      {a.entityId && (
+                        <code className="text-[10px]">
+                          {a.entityId.slice(0, 8)}
+                        </code>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+
+      <Link
+        href="/draft"
+        className="inline-block text-sm text-muted-foreground hover:text-foreground transition"
+      >
+        ← Back to draft
+      </Link>
+    </div>
+  );
+}
+
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border border-border bg-card p-4 space-y-2">
+      <h2 className="text-xs uppercase tracking-widest text-muted-foreground">
+        {title}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
+function btn(tone: "amber" | "rose" | "emerald") {
+  const styles: Record<typeof tone, string> = {
+    amber:
+      "bg-amber-500 text-white hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed",
+    rose:
+      "bg-rose-500 text-white hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed",
+    emerald:
+      "bg-emerald-500 text-white hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed",
+  };
+  return `rounded-md px-3 py-1.5 text-sm font-medium transition ${styles[tone]}`;
+}
