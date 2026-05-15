@@ -49,13 +49,21 @@ export default async function PlayersPage({
   const posFilter = POSITIONS.includes(position as Position)
     ? (position as Position)
     : null;
-  const sortMode: "name" | "country" | "rating" | "price" =
+  const sortMode: "name" | "country" | "rating" | "price" | "yours" =
     sort === "name" ||
     sort === "country" ||
     sort === "rating" ||
-    sort === "price"
+    sort === "price" ||
+    sort === "yours"
       ? sort
       : "price"; // default to price — it's what the auction cares about
+
+  // Resolve current user up front — we need their id for the "Yours" sort.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const myId = user?.id ?? null;
 
   const filters = [];
   if (q && q.trim()) {
@@ -78,6 +86,22 @@ export default async function PlayersPage({
     .groupBy(playerRatings.realPlayerId)
     .as("lr");
 
+  // My own personal-rating-per-player aliased subquery, so we can sort by it.
+  // Always defined (even when myId is null) — drizzle needs a stable shape;
+  // we just gate the join on having a real user.
+  const myRating = db
+    .select({
+      realPlayerId: personalRatings.realPlayerId,
+      score: personalRatings.score,
+    })
+    .from(personalRatings)
+    .where(
+      myId
+        ? eq(personalRatings.managerId, myId)
+        : sql`false`
+    )
+    .as("my_rating");
+
   const orderBy =
     sortMode === "name"
       ? [asc(realPlayers.displayName)]
@@ -87,6 +111,12 @@ export default async function PlayersPage({
       ? [
           desc(sql`coalesce(${latestRating.rating}, 0)`),
           asc(realPlayers.displayName),
+        ]
+      : sortMode === "yours"
+      ? [
+          // NULLS LAST so unrated players sink to the bottom
+          sql`${myRating.score} desc nulls last`,
+          desc(sql`coalesce(${playerPrices.price}, 0)`),
         ]
       : // price (default)
         [
@@ -114,6 +144,7 @@ export default async function PlayersPage({
     .innerJoin(countries, eq(realPlayers.countryId, countries.id))
     .leftJoin(latestRating, eq(latestRating.realPlayerId, realPlayers.id))
     .leftJoin(playerPrices, eq(playerPrices.realPlayerId, realPlayers.id))
+    .leftJoin(myRating, eq(myRating.realPlayerId, realPlayers.id))
     .where(filters.length > 0 ? and(...filters) : undefined)
     .orderBy(...orderBy)
     .limit(500);
@@ -126,13 +157,8 @@ export default async function PlayersPage({
   // ----------------------------------------------------------------------
   // Personal scouting overlay: for each visible player, count how many
   // managers have rated them ("interest") and surface my own score.
+  // (myId resolved earlier so the sort-by-yours subquery can use it.)
   // ----------------------------------------------------------------------
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const myId = user?.id ?? null;
-
   const playerIds = rows.map((r) => r.id);
   type PrRow = {
     realPlayerId: string;
@@ -302,7 +328,8 @@ export default async function PlayersPage({
             className="rounded-md border border-input bg-background px-3 py-1.5"
           >
             <option value="price">Price ↓</option>
-            <option value="rating">Rating ↓</option>
+            <option value="rating">Consensus ↓</option>
+            {myId && <option value="yours">Yours ↓</option>}
             <option value="name">Name</option>
             <option value="country">Country</option>
           </select>
