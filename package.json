@@ -20,6 +20,7 @@
     "compute:ratings": "tsx scripts/compute-ratings.ts",
     "seed:elos": "tsx scripts/seed-country-elos.ts",
     "seed:league": "tsx scripts/seed-league.ts",
+    "purge:users": "tsx scripts/purge-users.ts",
     "sim:bracket": "tsx scripts/simulate-bracket.ts",
     "compute:prices": "tsx scripts/compute-prices.ts"
   },
