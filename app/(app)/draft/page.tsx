@@ -17,7 +17,7 @@ import {
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
 import { maxBidNow } from "@/lib/auction/state";
-import { resolveExpired } from "./actions";
+import { finalizeExpiredLots } from "@/lib/auction/finalize";
 import AuctionRoom, {
   type AuctionRoomProps,
   type AvailablePlayer,
@@ -70,9 +70,11 @@ export default async function DraftPage({
     );
   }
 
-  // Self-heal: finalize any expired lots before render.
+  // Self-heal: finalize any expired lots before render. Uses the non-action
+  // helper so this is just a DB read+write — no revalidatePath, which Next.js
+  // 16 forbids inside render (we're already producing fresh output below).
   if (initialDraft.status === "live" && initialDraft.currentLotId) {
-    await resolveExpired(initialDraft.id);
+    await finalizeExpiredLots(initialDraft.id);
   }
   const [d] = await db
     .select()

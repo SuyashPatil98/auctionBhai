@@ -46,7 +46,30 @@ async function main() {
     throw new Error("env vars missing");
   }
 
-  // 1. Delete auth users via admin API.
+  // 1. Reset auction state FIRST. auction_lots.nominated_by and
+  //    auction_bids.profile_id are `on delete restrict`, so they'd block the
+  //    cascade from auth.users → profiles. Clear them before deleting users.
+  const sql = postgres(dbUrl, { prepare: false, max: 1 });
+  try {
+    await sql`truncate table auction_bids, proxy_bids, auction_lots restart identity cascade`;
+    await sql`truncate table manager_budgets`;
+    await sql`truncate table rosters`;
+    await sql`
+      update drafts set
+        status = 'scheduled',
+        current_lot_id = null,
+        current_nominator_profile_id = null,
+        started_at = null,
+        completed_at = null,
+        paused_at = null,
+        next_lot_number = 1
+    `;
+    console.log("Draft + auction state reset.");
+  } finally {
+    await sql.end();
+  }
+
+  // 2. Delete auth users via admin API. profiles + league_members cascade.
   const supabase = createClient(url, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
@@ -75,32 +98,12 @@ async function main() {
   }
   console.log(`\nAuth users deleted: ${deleted}`);
 
-  // 2. Reset auction state (cascades from auth.users handled profiles +
-  //    league_members + rosters + manager_budgets via FK CASCADE; auction
-  //    tables are draft-scoped and need manual clearing).
-  const sql = postgres(dbUrl, { prepare: false, max: 1 });
+  // 3. Clean any orphan league_members (profiles cascaded, this is belt-and-suspenders).
+  const sql2 = postgres(dbUrl, { prepare: false, max: 1 });
   try {
-    // Truncate the entire auction tree.
-    await sql`truncate table auction_bids, proxy_bids, auction_lots restart identity cascade`;
-    await sql`truncate table manager_budgets`;
-    await sql`truncate table rosters`;
-    // Reset draft to scheduled, clear pointers.
-    await sql`
-      update drafts set
-        status = 'scheduled',
-        current_lot_id = null,
-        current_nominator_profile_id = null,
-        started_at = null,
-        completed_at = null,
-        paused_at = null,
-        next_lot_number = 1
-    `;
-    // Wipe league_members — they're tied to profiles which are now gone.
-    // (Profiles cascade deleted, but if any orphans remain we clean them.)
-    await sql`delete from league_members where profile_id not in (select id from profiles)`;
-    console.log("Draft + auction state reset.");
+    await sql2`delete from league_members where profile_id not in (select id from profiles)`;
   } finally {
-    await sql.end();
+    await sql2.end();
   }
 
   console.log("\n✓ Clean slate. Tell your friends to sign up.");
