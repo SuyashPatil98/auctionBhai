@@ -139,7 +139,9 @@ async function copyTable(
           ")"
       )
       .join(", ");
-    const values = chunk.flatMap((r) => cols.map((c) => r[c]));
+    const values = chunk.flatMap((r) =>
+      cols.map((c) => r[c] as never)
+    );
     await newSql.unsafe(
       `insert into public.${table} (${colList}) values ${placeholders} on conflict do nothing`,
       values

@@ -1,0 +1,114 @@
+{
+  "_meta": {
+    "scope": "FIFA World Cups 1998, 2002, 2006, 2010, 2014, 2018, 2022",
+    "source": "manually curated from Wikipedia squad pages and FIFA records",
+    "notes": "Aggregates only. Players with no entry are 0/0/0 in the rating engine (treated as 'no pedigree' — correct signal). Extend this list as the 2026 squads firm up. Stats are best-effort and should be re-verified for any borderline rating influence."
+  },
+  "players": [
+    { "name": "Lionel Messi", "country": "ARG", "wc_goals": 13, "wc_assists": 8, "wc_appearances": 26, "wc_tournaments": 5 },
+    { "name": "Ángel Di María", "country": "ARG", "wc_goals": 5, "wc_assists": 4, "wc_appearances": 27, "wc_tournaments": 4 },
+    { "name": "Julián Álvarez", "country": "ARG", "wc_goals": 4, "wc_assists": 0, "wc_appearances": 7, "wc_tournaments": 1 },
+    { "name": "Rodrigo De Paul", "country": "ARG", "wc_goals": 1, "wc_assists": 2, "wc_appearances": 7, "wc_tournaments": 1 },
+    { "name": "Lautaro Martínez", "country": "ARG", "wc_goals": 1, "wc_assists": 1, "wc_appearances": 12, "wc_tournaments": 2 },
+    { "name": "Emiliano Martínez", "country": "ARG", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 7, "wc_tournaments": 1 },
+    { "name": "Nicolás Otamendi", "country": "ARG", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 14, "wc_tournaments": 3 },
+
+    { "name": "Cristiano Ronaldo", "country": "POR", "wc_goals": 8, "wc_assists": 2, "wc_appearances": 22, "wc_tournaments": 5 },
+    { "name": "Pepe", "country": "POR", "wc_goals": 1, "wc_assists": 0, "wc_appearances": 13, "wc_tournaments": 4 },
+    { "name": "Bernardo Silva", "country": "POR", "wc_goals": 1, "wc_assists": 1, "wc_appearances": 9, "wc_tournaments": 2 },
+    { "name": "Bruno Fernandes", "country": "POR", "wc_goals": 2, "wc_assists": 2, "wc_appearances": 9, "wc_tournaments": 2 },
+    { "name": "Rúben Dias", "country": "POR", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 5, "wc_tournaments": 1 },
+    { "name": "João Félix", "country": "POR", "wc_goals": 1, "wc_assists": 0, "wc_appearances": 5, "wc_tournaments": 1 },
+
+    { "name": "Luka Modrić", "country": "HRV", "wc_goals": 2, "wc_assists": 4, "wc_appearances": 18, "wc_tournaments": 4 },
+    { "name": "Mateo Kovačić", "country": "HRV", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 14, "wc_tournaments": 3 },
+    { "name": "Ivan Perišić", "country": "HRV", "wc_goals": 6, "wc_assists": 3, "wc_appearances": 14, "wc_tournaments": 3 },
+    { "name": "Marcelo Brozović", "country": "HRV", "wc_goals": 0, "wc_assists": 1, "wc_appearances": 14, "wc_tournaments": 3 },
+    { "name": "Andrej Kramarić", "country": "HRV", "wc_goals": 4, "wc_assists": 2, "wc_appearances": 13, "wc_tournaments": 3 },
+
+    { "name": "Kylian Mbappé", "country": "FRA", "wc_goals": 12, "wc_assists": 2, "wc_appearances": 14, "wc_tournaments": 2 },
+    { "name": "Antoine Griezmann", "country": "FRA", "wc_goals": 6, "wc_assists": 4, "wc_appearances": 14, "wc_tournaments": 3 },
+    { "name": "Olivier Giroud", "country": "FRA", "wc_goals": 4, "wc_assists": 2, "wc_appearances": 14, "wc_tournaments": 3 },
+    { "name": "Aurélien Tchouaméni", "country": "FRA", "wc_goals": 1, "wc_assists": 0, "wc_appearances": 7, "wc_tournaments": 1 },
+    { "name": "Theo Hernández", "country": "FRA", "wc_goals": 1, "wc_assists": 0, "wc_appearances": 7, "wc_tournaments": 1 },
+    { "name": "Ousmane Dembélé", "country": "FRA", "wc_goals": 0, "wc_assists": 1, "wc_appearances": 9, "wc_tournaments": 2 },
+
+    { "name": "Neymar", "country": "BRA", "wc_goals": 8, "wc_assists": 5, "wc_appearances": 17, "wc_tournaments": 3 },
+    { "name": "Marquinhos", "country": "BRA", "wc_goals": 1, "wc_assists": 0, "wc_appearances": 12, "wc_tournaments": 2 },
+    { "name": "Vinícius Júnior", "country": "BRA", "wc_goals": 1, "wc_assists": 0, "wc_appearances": 5, "wc_tournaments": 1 },
+    { "name": "Casemiro", "country": "BRA", "wc_goals": 1, "wc_assists": 0, "wc_appearances": 10, "wc_tournaments": 2 },
+    { "name": "Alisson", "country": "BRA", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 10, "wc_tournaments": 2 },
+
+    { "name": "Manuel Neuer", "country": "DEU", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 19, "wc_tournaments": 4 },
+    { "name": "Thomas Müller", "country": "DEU", "wc_goals": 10, "wc_assists": 6, "wc_appearances": 19, "wc_tournaments": 4 },
+    { "name": "İlkay Gündoğan", "country": "DEU", "wc_goals": 1, "wc_assists": 0, "wc_appearances": 5, "wc_tournaments": 2 },
+    { "name": "Joshua Kimmich", "country": "DEU", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 7, "wc_tournaments": 2 },
+    { "name": "Antonio Rüdiger", "country": "DEU", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 6, "wc_tournaments": 2 },
+    { "name": "Leroy Sané", "country": "DEU", "wc_goals": 1, "wc_assists": 1, "wc_appearances": 4, "wc_tournaments": 1 },
+
+    { "name": "Harry Kane", "country": "ENG", "wc_goals": 8, "wc_assists": 2, "wc_appearances": 13, "wc_tournaments": 2 },
+    { "name": "Raheem Sterling", "country": "ENG", "wc_goals": 1, "wc_assists": 1, "wc_appearances": 12, "wc_tournaments": 2 },
+    { "name": "Harry Maguire", "country": "ENG", "wc_goals": 1, "wc_assists": 0, "wc_appearances": 12, "wc_tournaments": 2 },
+    { "name": "Jordan Pickford", "country": "ENG", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 11, "wc_tournaments": 2 },
+    { "name": "Kyle Walker", "country": "ENG", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 11, "wc_tournaments": 2 },
+    { "name": "Declan Rice", "country": "ENG", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 5, "wc_tournaments": 1 },
+    { "name": "Bukayo Saka", "country": "ENG", "wc_goals": 3, "wc_assists": 0, "wc_appearances": 5, "wc_tournaments": 1 },
+    { "name": "Jude Bellingham", "country": "ENG", "wc_goals": 1, "wc_assists": 1, "wc_appearances": 5, "wc_tournaments": 1 },
+    { "name": "Phil Foden", "country": "ENG", "wc_goals": 1, "wc_assists": 0, "wc_appearances": 4, "wc_tournaments": 1 },
+
+    { "name": "Sergio Busquets", "country": "ESP", "wc_goals": 0, "wc_assists": 1, "wc_appearances": 17, "wc_tournaments": 3 },
+    { "name": "Álvaro Morata", "country": "ESP", "wc_goals": 3, "wc_assists": 0, "wc_appearances": 8, "wc_tournaments": 2 },
+    { "name": "Rodri", "country": "ESP", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 4, "wc_tournaments": 1 },
+    { "name": "Pedri", "country": "ESP", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 5, "wc_tournaments": 1 },
+    { "name": "Ferran Torres", "country": "ESP", "wc_goals": 1, "wc_assists": 1, "wc_appearances": 5, "wc_tournaments": 1 },
+    { "name": "Marco Asensio", "country": "ESP", "wc_goals": 1, "wc_assists": 0, "wc_appearances": 8, "wc_tournaments": 2 },
+
+    { "name": "Kevin De Bruyne", "country": "BEL", "wc_goals": 1, "wc_assists": 4, "wc_appearances": 14, "wc_tournaments": 3 },
+    { "name": "Romelu Lukaku", "country": "BEL", "wc_goals": 5, "wc_assists": 2, "wc_appearances": 14, "wc_tournaments": 3 },
+    { "name": "Thibaut Courtois", "country": "BEL", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 11, "wc_tournaments": 3 },
+
+    { "name": "Virgil van Dijk", "country": "NLD", "wc_goals": 1, "wc_assists": 0, "wc_appearances": 5, "wc_tournaments": 1 },
+    { "name": "Memphis Depay", "country": "NLD", "wc_goals": 2, "wc_assists": 1, "wc_appearances": 10, "wc_tournaments": 2 },
+    { "name": "Frenkie de Jong", "country": "NLD", "wc_goals": 0, "wc_assists": 1, "wc_appearances": 5, "wc_tournaments": 1 },
+    { "name": "Cody Gakpo", "country": "NLD", "wc_goals": 3, "wc_assists": 0, "wc_appearances": 5, "wc_tournaments": 1 },
+
+    { "name": "Robert Lewandowski", "country": "POL", "wc_goals": 1, "wc_assists": 0, "wc_appearances": 7, "wc_tournaments": 2 },
+    { "name": "Wojciech Szczęsny", "country": "POL", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 7, "wc_tournaments": 2 },
+    { "name": "Piotr Zieliński", "country": "POL", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 7, "wc_tournaments": 2 },
+
+    { "name": "Luis Suárez", "country": "URU", "wc_goals": 7, "wc_assists": 1, "wc_appearances": 17, "wc_tournaments": 4 },
+    { "name": "Fernando Muslera", "country": "URU", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 19, "wc_tournaments": 4 },
+    { "name": "Federico Valverde", "country": "URU", "wc_goals": 0, "wc_assists": 1, "wc_appearances": 4, "wc_tournaments": 1 },
+    { "name": "Darwin Núñez", "country": "URU", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 4, "wc_tournaments": 1 },
+
+    { "name": "Sadio Mané", "country": "SEN", "wc_goals": 3, "wc_assists": 0, "wc_appearances": 11, "wc_tournaments": 2 },
+    { "name": "Kalidou Koulibaly", "country": "SEN", "wc_goals": 1, "wc_assists": 0, "wc_appearances": 8, "wc_tournaments": 2 },
+    { "name": "Édouard Mendy", "country": "SEN", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 4, "wc_tournaments": 1 },
+
+    { "name": "Son Heung-min", "country": "KOR", "wc_goals": 3, "wc_assists": 0, "wc_appearances": 13, "wc_tournaments": 3 },
+    { "name": "Kim Min-jae", "country": "KOR", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 4, "wc_tournaments": 1 },
+
+    { "name": "Granit Xhaka", "country": "SUI", "wc_goals": 3, "wc_assists": 0, "wc_appearances": 14, "wc_tournaments": 3 },
+    { "name": "Xherdan Shaqiri", "country": "SUI", "wc_goals": 3, "wc_assists": 1, "wc_appearances": 13, "wc_tournaments": 3 },
+
+    { "name": "Achraf Hakimi", "country": "MAR", "wc_goals": 1, "wc_assists": 1, "wc_appearances": 6, "wc_tournaments": 2 },
+    { "name": "Hakim Ziyech", "country": "MAR", "wc_goals": 1, "wc_assists": 0, "wc_appearances": 5, "wc_tournaments": 1 },
+    { "name": "Yassine Bounou", "country": "MAR", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 6, "wc_tournaments": 2 },
+    { "name": "Sofyan Amrabat", "country": "MAR", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 5, "wc_tournaments": 1 },
+    { "name": "Youssef En-Nesyri", "country": "MAR", "wc_goals": 1, "wc_assists": 0, "wc_appearances": 5, "wc_tournaments": 1 },
+
+    { "name": "Hirving Lozano", "country": "MEX", "wc_goals": 1, "wc_assists": 0, "wc_appearances": 9, "wc_tournaments": 2 },
+    { "name": "Guillermo Ochoa", "country": "MEX", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 13, "wc_tournaments": 3 },
+    { "name": "Andrés Guardado", "country": "MEX", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 18, "wc_tournaments": 4 },
+
+    { "name": "Christian Pulisic", "country": "USA", "wc_goals": 1, "wc_assists": 0, "wc_appearances": 4, "wc_tournaments": 1 },
+    { "name": "Tyler Adams", "country": "USA", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 4, "wc_tournaments": 1 },
+
+    { "name": "Aleksandar Mitrović", "country": "SRB", "wc_goals": 2, "wc_assists": 0, "wc_appearances": 7, "wc_tournaments": 2 },
+    { "name": "Dušan Tadić", "country": "SRB", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 4, "wc_tournaments": 1 },
+
+    { "name": "Wataru Endo", "country": "JPN", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 4, "wc_tournaments": 1 },
+    { "name": "Takefusa Kubo", "country": "JPN", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 4, "wc_tournaments": 1 },
+    { "name": "Daichi Kamada", "country": "JPN", "wc_goals": 0, "wc_assists": 0, "wc_appearances": 4, "wc_tournaments": 1 }
+  ]
+}
