@@ -131,20 +131,47 @@ inflection points.
 - Every action writes to `audit_log` with actor + before/after jsonb
 - AuctionRoom shows paused banner, disables bid form when paused
 
+### Phase 3.4 — Deploy + dry run (commits `fix:` + `diag:` + `ops:`)
+
+Deployed to Vercel at https://auction-bhai.vercel.app. Three blockers surfaced + fixed:
+- `rosters` had no PK; default REPLICA IDENTITY blocked cascade deletes once it joined `supabase_realtime`. Migration 010 sets `REPLICA IDENTITY FULL`.
+- `purge-users.ts` was ordering wrong (deleting users before clearing auction tables whose FKs were `restrict`). Reordered.
+- Next.js 16 forbids `revalidatePath` during render. Extracted `finalizeExpiredLots` to `lib/auction/finalize.ts` so the draft page can self-heal without going through a server action.
+
+Then **migrated the Supabase project from `ap-northeast-1` (Tokyo) to `ap-south-1` (Mumbai)** because UK friend was losing bids on slow realtime push. Tools shipped:
+- `pnpm migrate:db` (`scripts/migrate-to-new-db.ts`) — two-phase script: apply SQL migrations 001-011 + copy data table-by-table in FK order. Skips profiles/auctions/drafts for clean-slate signup. Idempotent.
+- `app/api/health/route.ts` — diagnostic endpoint returning env-presence + sanitized DB error. Critical when Vercel logs were inaccessible during initial cutover.
+- `vercel.json` pinning region to `bom1`.
+- New Supabase project ref: `tcdkbftqmgnujvnvswzj`. Transaction pooler: `aws-1-ap-south-1.pooler.supabase.com:6543`.
+
+**Dry run with 4 friends: success.** Latency for UK friend dropped substantially after the migration. Realtime push Tokyo → UK was ~250ms; Mumbai → UK ~150ms.
+
+### Phase 3.5 — Pass + latency + timer recalibration (commit `Phase 3.5:`)
+
+- **Opt-out (pass) with confirmation modal**. Manager can pass on the current lot — locked-in, cancels their proxy on that lot, and if `members - leader - passes = 0` the lot closes immediately. New table `auction_lot_passes` (composite PK, in realtime publication).
+- **Optimistic UI on bid submit** via `useTransition` — instant "Bidding…" feedback during the ~300-800ms server roundtrip.
+- **Proxy-bid CTA promoted** to a prominent always-visible card. Framed as "never miss out on a slow connection" — proxy bids run server-side and are immune to client latency.
+- **Timers**: bid 20s → **45s**, anti-snipe trigger 10s → **15s**, extend stays 15s. Migration 011 updates column defaults + applies to scheduled drafts.
+
 ---
 
 ## Phase plan — what's next
 
-Calendar reminder: today is around May 14-15, 2026. **WC kicks off June 11.** Draft target was June 9 but with auction system done early, can be earlier.
+Calendar reminder: today is around May 15, 2026. **WC kicks off June 11.** Real draft date: June 9.
 
-### Phase 3.4 — User-driven dry run
+### Phase 4 — Personal scouting ratings (next, ~3-4 days)
 
-Deploy to Vercel, 4 friends sign up, run a full practice draft. **No more engineering needed** unless bugs surface.
+Designed and signed off; not yet built. **A) Personal scouting lens** — each manager configures their own rating; canonical empirical rating still drives prices.
 
-Vercel env vars needed:
-- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `ALLOWED_EMAILS`, `GEMINI_API_KEY`, `NEXT_PUBLIC_SITE_URL` (set to deployed URL after first build)
+- Selective rating: managers rate only their favourites (not all 1213). "N managers rated" column becomes a real "league interest" signal.
+- **Saved profiles + per-player override**: configure a "my MID formula" once, apply with two clicks; tweak weights for top targets.
+- **Formula**: weighted geometric mean of soft-floored percentiles. For each factor → percentile within position bucket → `p' = 0.20 + 0.80·p` → weighted geo mean (important=2, standard=1). Bounded 0-100. Missing factors silently dropped (manager sees coverage badge).
+- **Factor list**: goals/assists/per-90s/shots, pass-completion, key passes, tackles, interceptions, GK saves/clean-sheets/conceded, age, market value, caps, goals/cap, club tier, empirical rating as a meta-factor.
+- **WC pedigree**: add WC stats from last 7 tournaments (1998-2022). Need a Kaggle ingest before Phase 4.1.
+- **Privacy**: public-after-draft. Numbers visible live, formulas revealed in draft recap.
+- **Lock**: profiles freeze at `draft.status = 'live'`.
 
-Supabase needs the Vercel URL added under **Authentication → URL Configuration → Site URL + Redirect URLs**.
+Plan: 5 commitable sub-phases (4.1 percentile pipeline → 4.2 compute engine → 4.3 profile builder UI → 4.4 augmented players table → 4.5 lock + reveal).
 
 ### Phase 5 — Lineups, stat entry, scoring (next big block)
 
@@ -202,6 +229,7 @@ pnpm sim:bracket            # 10k Monte Carlo, writes expected_matches
 pnpm compute:prices         # rating + expected_matches → price + tier
 pnpm seed:league            # create league + add all profiles as members
 pnpm purge:users            # NUCLEAR: delete all auth users + reset draft (asks for YES confirmation)
+pnpm migrate:db             # copy data between Supabase projects (env: OLD_DATABASE_URL, NEW_DATABASE_URL)
 ```
 
 ---
@@ -215,6 +243,11 @@ pnpm purge:users            # NUCLEAR: delete all auth users + reset draft (asks
 - **Bid validation must run inside SELECT FOR UPDATE** — otherwise concurrent bids race.
 - **FBref dataset has no xG** in the Hubertsidorowicz top-5 CSV. Plan B is a different dataset; for now we use goals/assists/shots/saves/tackles which is enough.
 - **Trigger on auth.users insert** lives in SQL outside Drizzle's schema management — see `lib/db/sql/001_profile_trigger.sql`.
+- **Supabase admin API hides Postgres errors.** `auth.admin.deleteUser` returns `"Database error deleting user"` regardless of cause — always reproduce via direct SQL to see the real error. Burned an hour on this when realtime publication blocked deletes from PK-less `rosters`.
+- **Tables in `supabase_realtime` publication need a PK** (or `REPLICA IDENTITY FULL`). Otherwise DELETEs fail with "no replica identity and publishes deletes". Check before adding new tables to the publication.
+- **Supabase pooler hostname is `aws-1-…`** (one, not zero) for newer projects. `aws-0-…` returns "tenant/user not found" — copy the URL verbatim from Supabase's Connect modal rather than constructing it.
+- **Vercel pooler URL required for serverless**. Direct URL works fine locally (faster, no pooler overhead) but exhausts connections under serverless cold starts. Use direct in `.env.local`, pooler in Vercel.
+- **DB region matters more than Vercel region**. Vercel BOM1 + Supabase Tokyo = ~120ms/query. Vercel BOM1 + Supabase Mumbai = ~5ms/query.
 
 ---
 
@@ -231,7 +264,10 @@ pnpm purge:users            # NUCLEAR: delete all auth users + reset draft (asks
 | Auction server actions | `app/(app)/draft/actions.ts` + `app/(app)/draft/admin/actions.ts` |
 | Auction UI | `app/(app)/draft/AuctionRoom.tsx` |
 | Schema (Drizzle) | `lib/db/schema/` |
-| Hand-written SQL migrations | `lib/db/sql/` (numbered 001-009) |
+| Hand-written SQL migrations | `lib/db/sql/` (numbered 001-011) |
+| Migration between projects | `scripts/migrate-to-new-db.ts` |
+| Health/diag endpoint | `app/api/health/route.ts` |
+| Vercel region pin | `vercel.json` (bom1) |
 
 ---
 
