@@ -56,8 +56,9 @@ export const managerLineups = pgTable(
   (t) => [
     uniqueIndex("manager_lineups_profile_md_uq").on(t.profileId, t.matchday),
     index("manager_lineups_matchday_idx").on(t.matchday),
-    check("starter_count_chk", sql`cardinality(${t.starterIds}) = 11`),
-    check("bench_count_chk", sql`cardinality(${t.benchIds}) = 4`),
+    // Cardinality (11 starters + 4 bench for WC) is enforced in the server
+    // action — see lib/lineup/validate.ts. Removed as a CHECK in migration
+    // 019 so the schema can support smaller test/sandbox lineups.
     check("captain_vice_distinct_chk", sql`${t.captainId} <> ${t.viceId}`),
   ]
 );

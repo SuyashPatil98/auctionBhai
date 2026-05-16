@@ -185,6 +185,11 @@ export default async function TeamPage({
     byPosition.set(p.position, arr);
   }
 
+  // Lineup CTA — only when viewing own team, with a roster. Links to MD 1
+  // for now (WC kicks off June 11); will become "next upcoming MD" once
+  // we have a helper for that.
+  const showLineupCta = isMe && squad.length > 0;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -208,6 +213,14 @@ export default async function TeamPage({
             )}
           </p>
         </div>
+        {showLineupCta && (
+          <Link
+            href="/team/lineup/1"
+            className="rounded-md bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 text-sm font-semibold transition-all hover:scale-[1.03] hover:shadow-md hover:shadow-emerald-500/30"
+          >
+            Set lineup →
+          </Link>
+        )}
       </div>
 
       {/* Manager switcher */}
