@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { TIMEZONE_CHOICES } from "@/lib/util/timezones";
 import { changePassword, updateProfile } from "./actions";
 
 type InitialProfile = {
@@ -9,6 +10,7 @@ type InitialProfile = {
   displayName: string;
   teamName: string | null;
   teamEmoji: string | null;
+  timezone: string | null;
 };
 
 export default function AccountForms({
@@ -30,6 +32,7 @@ function ProfileForm({ initial }: { initial: InitialProfile }) {
   const [displayName, setDisplayName] = useState(initial.displayName);
   const [teamName, setTeamName] = useState(initial.teamName ?? "");
   const [teamEmoji, setTeamEmoji] = useState(initial.teamEmoji ?? "");
+  const [timezone, setTimezone] = useState(initial.timezone ?? "");
   const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<
     { kind: "ok" | "error"; msg: string } | null
@@ -39,7 +42,8 @@ function ProfileForm({ initial }: { initial: InitialProfile }) {
     handle !== initial.handle ||
     displayName !== initial.displayName ||
     teamName !== (initial.teamName ?? "") ||
-    teamEmoji !== (initial.teamEmoji ?? "");
+    teamEmoji !== (initial.teamEmoji ?? "") ||
+    timezone !== (initial.timezone ?? "");
 
   function handleSave() {
     setFeedback(null);
@@ -48,6 +52,7 @@ function ProfileForm({ initial }: { initial: InitialProfile }) {
     fd.append("display_name", displayName);
     fd.append("team_name", teamName);
     fd.append("team_emoji", teamEmoji);
+    fd.append("timezone", timezone);
     startTransition(() => {
       updateProfile(fd)
         .then(() => {
@@ -114,6 +119,24 @@ function ProfileForm({ initial }: { initial: InitialProfile }) {
             className={`${inputCls} text-center text-lg`}
           />
         </Field>
+
+        <Field
+          label="Timezone"
+          hint="Fixture & kickoff times shown in this zone. Auto = your browser."
+        >
+          <select
+            value={timezone}
+            disabled={isPending}
+            onChange={(e) => setTimezone(e.target.value)}
+            className={inputCls}
+          >
+            {TIMEZONE_CHOICES.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </Field>
       </div>
 
       <div className="flex items-center gap-3 pt-2 border-t border-border">
@@ -133,6 +156,7 @@ function ProfileForm({ initial }: { initial: InitialProfile }) {
               setDisplayName(initial.displayName);
               setTeamName(initial.teamName ?? "");
               setTeamEmoji(initial.teamEmoji ?? "");
+              setTimezone(initial.timezone ?? "");
               setFeedback(null);
             }}
             className="text-xs text-muted-foreground hover:text-foreground transition"

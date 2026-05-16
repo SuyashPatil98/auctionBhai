@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Kickoff } from "@/components/Kickoff";
 import { clearPrediction, savePrediction } from "./actions";
 
 export type PredictionFixture = {
@@ -37,10 +38,12 @@ export default function PredictionRow({
   fixture,
   myPrediction,
   mode,
+  tz,
 }: {
   fixture: PredictionFixture;
   myPrediction: MyPrediction | null;
   mode: "upcoming" | "past";
+  tz: string | null;
 }) {
   const router = useRouter();
   const [home, setHome] = useState<number>(myPrediction?.homeScore ?? 0);
@@ -90,15 +93,7 @@ export default function PredictionRow({
           {STAGE_LABEL[fixture.stage] ?? fixture.stage}
         </p>
         <p className="text-xs tabular-nums">
-          {kickoffDate.toLocaleDateString(undefined, {
-            month: "short",
-            day: "numeric",
-          })}
-          ,{" "}
-          {kickoffDate.toLocaleTimeString(undefined, {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
+          <Kickoff at={kickoffDate} tz={tz} />
         </p>
       </div>
 

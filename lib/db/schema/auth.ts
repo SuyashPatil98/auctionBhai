@@ -22,6 +22,7 @@ export const profiles = pgTable("profiles", {
   teamName: text("team_name"),
   teamEmoji: text("team_emoji"),
   avatarUrl: text("avatar_url"),
+  timezone: text("timezone"), // IANA tz; null → browser-detected
   role: userRoleEnum("role").notNull().default("member"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()

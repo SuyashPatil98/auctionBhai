@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { alias } from "drizzle-orm/pg-core";
 import { countries, fixtures } from "@/lib/db/schema";
 import { asc, eq } from "drizzle-orm";
+import { Kickoff } from "@/components/Kickoff";
+import { getCurrentProfileTimezone } from "@/lib/util/current-profile";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +34,7 @@ const STATUS_PILL: Record<string, string> = {
 export default async function FixturesPage() {
   const home = alias(countries, "home");
   const away = alias(countries, "away");
+  const tz = await getCurrentProfileTimezone();
 
   const rows = await db
     .select({
@@ -101,7 +104,7 @@ export default async function FixturesPage() {
                 </h2>
                 <ul className="space-y-2">
                   {matches.map((m) => (
-                    <FixtureRow key={m.id} {...m} />
+                    <FixtureRow key={m.id} {...m} tz={tz} />
                   ))}
                 </ul>
               </section>
@@ -123,19 +126,15 @@ function FixtureRow(props: {
   homeFlag: string | null;
   awayName: string;
   awayFlag: string | null;
+  tz: string | null;
 }) {
   const finished = props.status === "ft";
   const live = props.status === "live" || props.status === "ht";
   return (
     <li className="rounded-lg border border-border bg-card px-3 py-2.5">
       <div className="flex items-center gap-3">
-        <div className="min-w-[6.5rem] text-xs text-muted-foreground tabular-nums">
-          {props.kickoffAt.toLocaleString(undefined, {
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
+        <div className="min-w-[7.5rem] text-xs text-muted-foreground tabular-nums">
+          <Kickoff at={props.kickoffAt.toISOString()} tz={props.tz} />
         </div>
         <div className="flex-1 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-sm">
           <div className="text-right truncate flex items-center justify-end gap-1.5">
@@ -173,7 +172,7 @@ function FixtureRow(props: {
         <StatusPill status={props.status} />
       </div>
       {props.venue && (
-        <p className="mt-1 text-xs text-muted-foreground pl-[6.5rem]">
+        <p className="mt-1 text-xs text-muted-foreground pl-[7.5rem]">
           {props.venue}
         </p>
       )}

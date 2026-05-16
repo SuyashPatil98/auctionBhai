@@ -11,6 +11,7 @@ import {
   profiles,
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentProfileTimezone } from "@/lib/util/current-profile";
 import PredictionRow from "./PredictionRow";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,7 @@ export default async function PredictionsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   const myId = user.id;
+  const tz = await getCurrentProfileTimezone();
 
   // Members for the leaderboard
   const [league] = await db.select().from(leagues).limit(1);
@@ -257,6 +259,7 @@ export default async function PredictionsPage() {
                 }}
                 myPrediction={myByFixture.get(f.id) ?? null}
                 mode="upcoming"
+                tz={tz}
               />
             ))}
           </div>
@@ -287,6 +290,7 @@ export default async function PredictionsPage() {
                 }}
                 myPrediction={myByFixture.get(f.id) ?? null}
                 mode="past"
+                tz={tz}
               />
             ))}
           </div>

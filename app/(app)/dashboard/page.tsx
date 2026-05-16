@@ -16,6 +16,8 @@ import {
   rosters,
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
+import { Kickoff } from "@/components/Kickoff";
+import { getCurrentProfileTimezone } from "@/lib/util/current-profile";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +31,7 @@ export default async function DashboardPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
+  const tz = await getCurrentProfileTimezone();
   const [league] = await db.select().from(leagues).limit(1);
   const [draft] = league
     ? await db
@@ -216,8 +219,12 @@ export default async function DashboardPage() {
                       <strong className="text-foreground">
                         {s.bidderEmoji} {s.bidderName}
                       </strong>
-                      {s.soldAt &&
-                        ` · ${new Date(s.soldAt).toLocaleString()}`}
+                      {s.soldAt && (
+                        <>
+                          {" · "}
+                          <Kickoff at={s.soldAt} tz={tz} />
+                        </>
+                      )}
                     </p>
                   </div>
                   <div className="text-right shrink-0">
@@ -252,7 +259,7 @@ export default async function DashboardPage() {
                     {f.awayName}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {new Date(f.kickoff).toLocaleString()}
+                    <Kickoff at={f.kickoff.toISOString()} tz={tz} />
                   </p>
                 </div>
               ))}

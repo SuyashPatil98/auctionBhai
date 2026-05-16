@@ -61,6 +61,7 @@ export default async function AccountPage() {
           displayName: profile.displayName,
           teamName: profile.teamName,
           teamEmoji: profile.teamEmoji,
+          timezone: profile.timezone,
         }}
       />
     </div>

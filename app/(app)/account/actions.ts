@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { profiles } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
+import { isKnownTimezone } from "@/lib/util/timezones";
 
 async function requireAuthedProfile(): Promise<string> {
   const supabase = await createClient();
@@ -28,6 +29,10 @@ export async function updateProfile(formData: FormData) {
   const teamName = String(formData.get("team_name") ?? "").trim();
   const teamEmoji = String(formData.get("team_emoji") ?? "").trim();
   const handleRaw = String(formData.get("handle") ?? "").trim();
+  const timezone = String(formData.get("timezone") ?? "").trim();
+  if (timezone && !isKnownTimezone(timezone)) {
+    throw new Error("unknown timezone — pick one from the dropdown");
+  }
 
   if (!displayName) throw new Error("display name is required");
   if (displayName.length > 40) {
@@ -57,6 +62,7 @@ export async function updateProfile(formData: FormData) {
     displayName,
     teamName: teamName || null,
     teamEmoji: teamEmoji || null,
+    timezone: timezone || null,
   };
   if (handle) updates.handle = handle;
 
@@ -78,6 +84,8 @@ export async function updateProfile(formData: FormData) {
   revalidatePath("/dashboard");
   revalidatePath("/team");
   revalidatePath("/draft");
+  revalidatePath("/fixtures");
+  revalidatePath("/predictions");
 }
 
 /**
