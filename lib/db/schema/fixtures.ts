@@ -40,6 +40,8 @@ export const fixtures = pgTable(
     status: fixtureStatusEnum("status").notNull().default("scheduled"),
     venue: text("venue"),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    statsFinalizedAt: timestamp("stats_finalized_at", { withTimezone: true }),
+    motmResolvedAt: timestamp("motm_resolved_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -114,6 +116,7 @@ export const playerMatchStats = pgTable(
     yellows: smallint("yellows").notNull().default(0),
     reds: smallint("reds").notNull().default(0),
     ownGoals: smallint("own_goals").notNull().default(0),
+    penSaves: smallint("pen_saves").notNull().default(0),
     motmVoteWinner: boolean("motm_vote_winner").notNull().default(false),
     raw: jsonb("raw").$type<Record<string, unknown>>(),
     computedAt: timestamp("computed_at", { withTimezone: true })
