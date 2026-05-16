@@ -13,6 +13,7 @@ import {
   rosters,
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
+import { requireLeagueMember } from "@/lib/util/require-league-member";
 import {
   isFormationKey,
   type FormationKey,
@@ -55,6 +56,7 @@ export type SaveLineupInput = {
 
 export async function saveLineup(input: SaveLineupInput) {
   const profileId = await requireProfileId();
+  await requireLeagueMember(profileId);
 
   if (!isFormationKey(input.formation)) {
     throw new Error(`unknown formation: ${input.formation}`);
@@ -167,6 +169,7 @@ export async function autoFillFromPriorMatchday(
   targetMatchday: number
 ): Promise<number | null> {
   const profileId = await requireProfileId();
+  await requireLeagueMember(profileId);
 
   // Lock check for the target
   const mdFixtures = await db

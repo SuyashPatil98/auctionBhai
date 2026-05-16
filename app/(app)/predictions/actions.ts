@@ -9,6 +9,7 @@ import {
   predictions,
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
+import { requireLeagueMember } from "@/lib/util/require-league-member";
 import { scorePrediction } from "@/lib/predictions/score";
 
 async function requireAuthedProfile(): Promise<string> {
@@ -26,6 +27,7 @@ async function requireAuthedProfile(): Promise<string> {
  */
 export async function savePrediction(formData: FormData) {
   const profileId = await requireAuthedProfile();
+  await requireLeagueMember(profileId);
   const fixtureId = String(formData.get("fixture_id") ?? "");
   const homeScore = Number.parseInt(
     String(formData.get("home_score") ?? ""),
@@ -96,6 +98,7 @@ export async function savePrediction(formData: FormData) {
 
 export async function clearPrediction(formData: FormData) {
   const profileId = await requireAuthedProfile();
+  await requireLeagueMember(profileId);
   const fixtureId = String(formData.get("fixture_id") ?? "");
   if (!fixtureId) throw new Error("fixture_id required");
 

@@ -12,6 +12,7 @@ import {
   realPlayers,
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
+import { requireLeagueMember } from "@/lib/util/require-league-member";
 
 // ----------------------------------------------------------------------------
 // Auth + permission
@@ -33,8 +34,11 @@ async function requireProfileId(): Promise<string> {
  *
  * Destructive paths (unfinalize) still require commissioner.
  */
-async function assertCanEdit(_fixtureId: string, _profileId: string) {
-  // intentional no-op — see comment above
+async function assertCanEdit(_fixtureId: string, profileId: string) {
+  // Stewards aren't enforced (4-friend trust model), but the actor must
+  // be a league member. This blocks random strangers who signed up at
+  // the public URL from editing stats.
+  await requireLeagueMember(profileId);
 }
 
 // ----------------------------------------------------------------------------

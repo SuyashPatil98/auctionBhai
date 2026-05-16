@@ -13,6 +13,7 @@ import {
   profiles,
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
+import { requireLeagueMember } from "@/lib/util/require-league-member";
 
 const VOTE_WINDOW_HOURS = 24;
 
@@ -34,6 +35,7 @@ export async function castMotmVote(
   candidateRealPlayerId: string
 ) {
   const profileId = await requireProfileId();
+  await requireLeagueMember(profileId);
 
   // Window check
   const [fx] = await db
@@ -94,6 +96,7 @@ export async function castMotmVote(
 
 export async function clearMotmVote(fixtureId: string) {
   const profileId = await requireProfileId();
+  await requireLeagueMember(profileId);
 
   const [fx] = await db
     .select({ motmResolvedAt: fixtures.motmResolvedAt })
@@ -222,6 +225,7 @@ async function maybeAutoResolve(fixtureId: string) {
 
 export async function forceResolveMotm(fixtureId: string) {
   const profileId = await requireProfileId();
+  await requireLeagueMember(profileId);
   const [me] = await db
     .select({ role: profiles.role })
     .from(profiles)
