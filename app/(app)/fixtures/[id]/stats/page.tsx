@@ -6,7 +6,6 @@ import { db } from "@/lib/db";
 import {
   countries,
   fixtureLineups,
-  fixtureStewards,
   fixtures,
   playerMatchStats,
   profiles,
@@ -34,27 +33,16 @@ export default async function FixtureStatsPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Permission: commissioner OR assigned steward.
+  // Edit access: any signed-in league member can edit stats (4-friend
+  // trust model — stewards are a coordination signal, not a security
+  // boundary). Commissioner role only gates the destructive unfinalize.
   const [me] = await db
     .select({ role: profiles.role })
     .from(profiles)
     .where(eq(profiles.id, user.id))
     .limit(1);
   const isCommissioner = me?.role === "commissioner";
-
-  const [stewardRow] = await db
-    .select({ id: fixtureStewards.fixtureId })
-    .from(fixtureStewards)
-    .where(
-      and(
-        eq(fixtureStewards.fixtureId, fixtureId),
-        eq(fixtureStewards.stewardProfileId, user.id)
-      )
-    )
-    .limit(1);
-  const isSteward = !!stewardRow;
-
-  const canEdit = isCommissioner || isSteward;
+  const canEdit = true;
 
   // Load fixture w/ country names + flags
   const home = alias(countries, "home");

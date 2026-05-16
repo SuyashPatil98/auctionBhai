@@ -6,7 +6,6 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   fixtureLineups,
-  fixtureStewards,
   fixtures,
   playerMatchStats,
   profiles,
@@ -28,32 +27,14 @@ async function requireProfileId(): Promise<string> {
 }
 
 /**
- * Edit gate: commissioner can edit any fixture's stats; assigned steward
- * can edit their assigned fixture; anyone else gets a thrown error.
+ * Edit gate: any signed-in user can edit fixture stats. The 4-friend trust
+ * model treats stewards as a coordination signal ("you're scheduled for
+ * this one"), not a security boundary — anyone can pinch-hit.
+ *
+ * Destructive paths (unfinalize) still require commissioner.
  */
-async function assertCanEdit(fixtureId: string, profileId: string) {
-  const [me] = await db
-    .select({ role: profiles.role })
-    .from(profiles)
-    .where(eq(profiles.id, profileId))
-    .limit(1);
-
-  if (me?.role === "commissioner") return;
-
-  const [steward] = await db
-    .select({ id: fixtureStewards.fixtureId })
-    .from(fixtureStewards)
-    .where(
-      and(
-        eq(fixtureStewards.fixtureId, fixtureId),
-        eq(fixtureStewards.stewardProfileId, profileId)
-      )
-    )
-    .limit(1);
-
-  if (!steward) {
-    throw new Error("not allowed — you aren't the assigned steward");
-  }
+async function assertCanEdit(_fixtureId: string, _profileId: string) {
+  // intentional no-op — see comment above
 }
 
 // ----------------------------------------------------------------------------
@@ -268,24 +249,25 @@ export async function unfinalizeFixtureStats(fixtureId: string) {
  * Idempotent.
  */
 async function recomputeCleanSheetsForFixture(fixtureId: string) {
+  // UPDATE...FROM in Postgres needs the target table aliased and joins
+  // expressed via WHERE, not via JOIN syntax referencing the target.
   await db.execute(sql`
-    update player_match_stats pms
+    update player_match_stats
     set
-      goals_conceded = case
-        when fl.side = 'home' then coalesce(f.away_score, 0)
-        else coalesce(f.home_score, 0)
-      end,
-      clean_sheet = (
+      goals_conceded = src.conceded,
+      clean_sheet = (src.conceded = 0 and player_match_stats.minutes >= 60)
+    from (
+      select
+        fl.real_player_id,
         case
           when fl.side = 'home' then coalesce(f.away_score, 0)
           else coalesce(f.home_score, 0)
-        end = 0
-        and pms.minutes >= 60
-      )
-    from fixtures f
-    join fixture_lineups fl
-      on fl.fixture_id = f.id and fl.real_player_id = pms.real_player_id
-    where pms.fixture_id = ${fixtureId}
-      and f.id = ${fixtureId}
+        end as conceded
+      from fixtures f
+      join fixture_lineups fl on fl.fixture_id = f.id
+      where f.id = ${fixtureId}
+    ) src
+    where player_match_stats.fixture_id = ${fixtureId}
+      and player_match_stats.real_player_id = src.real_player_id
   `);
 }
