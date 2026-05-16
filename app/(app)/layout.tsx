@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
+import { eq } from "drizzle-orm";
 import { createClient } from "@/lib/supabase/server";
+import { db } from "@/lib/db";
+import { profiles } from "@/lib/db/schema";
 import { Nav } from "@/components/layout/nav";
 
 export default async function AppLayout({
@@ -16,10 +19,21 @@ export default async function AppLayout({
     redirect("/login");
   }
 
-  // For now, just use email prefix as display name.
-  // Phase 1 will resolve to profiles.display_name.
+  // Read display name from the canonical profiles table — this is the
+  // value the user can edit on /account, so the nav reflects their changes.
+  // Fallback chain handles the brief window before the profile trigger
+  // fires on first signup.
+  const [profile] = await db
+    .select({ displayName: profiles.displayName, teamEmoji: profiles.teamEmoji })
+    .from(profiles)
+    .where(eq(profiles.id, user.id))
+    .limit(1);
+
   const displayName =
-    user.user_metadata?.display_name ?? user.email?.split("@")[0] ?? null;
+    profile?.displayName ??
+    user.user_metadata?.display_name ??
+    user.email?.split("@")[0] ??
+    null;
 
   return (
     <>

@@ -43,9 +43,13 @@ export function Nav({ displayName }: { displayName?: string | null }) {
         </div>
         <div className="flex items-center gap-3">
           {displayName && (
-            <span className="hidden sm:inline text-sm text-muted-foreground">
+            <Link
+              href="/account"
+              className="hidden sm:inline text-sm text-muted-foreground hover:text-foreground transition"
+              title="Account settings"
+            >
               {displayName}
-            </span>
+            </Link>
           )}
           <form action={signOut}>
             <button
