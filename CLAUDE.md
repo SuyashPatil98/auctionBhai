@@ -56,6 +56,36 @@ inflection points.
 
 ---
 
+## Current state (as of May 16, 2026 — handoff snapshot)
+
+**Live**: https://auction-bhai.vercel.app · Supabase project `tcdkbftqmgnujvnvswzj` (Mumbai · ap-south-1)
+
+**Done**: every phase up to and including the personal scouting system, predictions, team view, account management, admin refresh, theme overhaul, and mobile audit. Deployed and verified.
+
+**Routes** (full list):
+| Route | Purpose |
+|---|---|
+| `/dashboard` | Greeting, stat tiles, primary CTA, recent activity, fixtures, managers |
+| `/draft` | Auction room with hero card, big countdown, manager budget tiles, bid form, proxy CTA, pass with confirmation |
+| `/draft/admin` | Pause/resume/void/manual-award/reset + league member management (✕/+ buttons) |
+| `/draft/recap/scouting` | Post-draft reveal of everyone's formulas + scores per pick |
+| `/team` | Squad view grouped by position, FIFA card grid, manager switcher, budget bar |
+| `/players` | Table or Cards view, filters (q/position/country/min interest/rated by), sort by price/consensus/yours/name/country, BulkRatePanel above table when user has formulas |
+| `/players/[id]` | Reporter-style detail page with hero + verdict + ScoutingSection (rate this player with profile picker, league view, +/− vs consensus pill) |
+| `/scouting/profiles` | Saved formula CRUD, live preview, BulkApply per formula, reset all my ratings, sticky preview sidebar on desktop |
+| `/predictions` | Score predictions, FPL-style 3/2/1/0 scoring, leaderboard, fixture rows with -/+ steppers |
+| `/account` | Display name / handle / team name / emoji / password (email fixed) |
+| `/admin` | Single "Refresh everything" button + CLI hints for heavy ops |
+| `/admin/ingest` | Fast football-data ingest buttons (tournament, fixtures only — slow ones removed) |
+| `/fixtures` | Read-only fixtures list |
+| `/api/health` | Diagnostic endpoint: env presence + sanitized DB error |
+
+**Phase 5 onward not started.** First WC kickoff is **June 11, 2026** — Phase 5 (lineups, stat entry, scoring, MOTM, live ratings) is the next big block and must be done before then.
+
+**For testing Phase 5**: see the strategy I laid out before — pure-fn unit tests on the scoring engine, a synthetic-matchday admin tool for dry-runs, international friendlies window June 1-10 for real-data validation, then trial by fire June 11.
+
+---
+
 ## Phases shipped
 
 ### Phase 0 — Foundations (commit `Phase 0:` + `fix(pnpm):` + `fix(db):` + `auth:`)
@@ -159,20 +189,24 @@ Then **migrated the Supabase project from `ap-northeast-1` (Tokyo) to `ap-south-
 
 Calendar reminder: today is around May 15, 2026. **WC kicks off June 11.** Real draft date: June 9.
 
-### Phase 4 — Personal scouting ratings (in progress)
+### Phase 4 — Personal scouting ratings ✅ DONE
 
 **A) Personal scouting lens** — each manager configures their own rating; canonical empirical rating still drives prices.
 
-**Shipped:**
-- **Phase 4.0** (commit `Phase 4.0:`) — `wc_pedigree` table + `pnpm import:wc` ingesting hand-curated WC stats 1998-2022. 46 players matched.
-- **Phase 4.1** (commit `Phase 4.1:`) — factor percentile pipeline. Migration 013 adds `rating_factor` enum (16 factors), `rating_profiles`, `rating_profile_factors`, `personal_ratings`, `player_factor_percentiles`. `pnpm compute:percentiles` populates the 19k-row materialized percentile table (1213 active players × 16 factors). Factor registry at `lib/personal-rating/factors.ts`.
+- **4.0** WC pedigree (1998-2022, hand-curated JSON, 46 matched)
+- **4.1** Factor percentile pipeline. 21 factors × 1213 players = 25k rows.
+- **4.2** Pure compute (`lib/personal-rating/compute.ts`, weighted geom mean ε=0.20) + server actions + 10 unit tests anchored to a worked Rice→73 example. `pnpm test:rating`.
+- **4.3** `/scouting/profiles` — saved formulas, factor picker by category, live preview against top-priced player. Three-state Off/Std/Imp segmented toggle.
+- **4.4** `/players` gains `Cons · Yours · Interest N/4` columns + filter by min-interest + rated-by-manager. Detail page has a "Rate this player" panel with profile picker. League view shows all 4 managers' scores; formula names stay private until reveal.
+- **4.5** Lock at draft start (stamps `locked_at` on all profiles), `/draft/recap/scouting` reveals everyone's formulas + scores per pick when draft completes.
+- **4.6** Defensive + GK factors. Migration 015 added all the columns; the current Hubertsidorowicz CSV only ships standard + keeper + shooting + playing_time + misc, so the trimmed registry has 21 factors with real coverage. Adding more CSVs (defense.csv, passing.csv) later is purely additive.
+- **4.6 trim** Removed factors with 0% coverage (xG, tackles_total, blocks, clearances, passing, possession). Final factor list = what the CSV actually has.
 
-**Remaining:**
+**Bulk apply**: each formula card has an "Apply to all / GK / DEF / MID / FWD" panel + skip-already-rated. /players gains a similar bar when filters are active. Per-player overrides are never overwritten.
 
-- **4.2 Compute engine + server actions**: pure-fn `score(percentiles, weights) → { score, coverage }` (weighted geom mean of soft-floored percentiles, ε=0.20, important=2 / standard=1). Server actions for profile CRUD + per-player ratings. Lock guard (`draft.status === 'scheduled'`).
-- **4.3 Profile builder UI**: `/scouting/profiles` — pick factors, tag important/standard, live preview score on a sample player.
-- **4.4 Player table integration**: `/players` grows columns `Price · Consensus · Interest (N/4) · Your view · A · B · C`. Per-player rate action on detail page with override toggle.
-- **4.5 Lock at draft start + post-draft reveal stub**: profile mutations rejected once `status='live'`; reveal page is a stub for now.
+**Reset/clear**: per-formula "Clear N ratings from this formula" and page-level "Reset all my ratings" — both confirmed by count + lock-gated.
+
+**Sort**: `/players` sort by Yours added (NULLS LAST so unrated sinks).
 
 **Design recap:**
 - Selective rating: managers rate only their favourites. "Interest N/4" is real league-interest signal.
@@ -180,6 +214,36 @@ Calendar reminder: today is around May 15, 2026. **WC kicks off June 11.** Real 
 - Formula: weighted geometric mean of soft-floored percentiles. `p' = ε + (1-ε)·p` with ε=0.20, then geom-mean with important=2 / standard=1 weights. Bounded 0-100. Missing factors silently dropped.
 - Privacy: public-after-draft. Numbers visible live, formulas revealed in draft recap.
 - Lock: profiles freeze at `draft.status = 'live'`.
+
+### Team page ✅ DONE
+
+`/team` shows your squad post-auction (or fills as you win bids). Manager switcher tabs let you scout other managers' rosters. Position quota cards (filled vs required), budget bar with urgency colors. FIFA card grid per position. Phase 5 will add lineup builder on top of this.
+
+### Predictions ✅ DONE
+
+`/predictions` — separate side-game, single page. Predict every fixture's score, FPL-style 3/2/1/0 scoring, leaderboard at top. Lock at kickoff. Schema in migration 016, scoring in `lib/predictions/score.ts`. `scoreFinalisedFixtures` server action sweeps in when fixtures finalise — runs automatically once Phase 5 brings stat entry.
+
+### Account ✅ DONE
+
+`/account` — edit display name / handle / team name / team emoji / password. Email is fixed (auth PK). Display name now read from profiles table in the layout, so changes propagate to every surface immediately. Reached via clicking displayName chip in nav (desktop) or "Account" link in mobile nav.
+
+### Admin ✅ refactored to one button
+
+`/admin` is a single "Refresh everything" button that chains: tournament + fixtures ingest (football-data, ~3s) → bracket sim → prices → percentiles (~9s total). Returns structured per-step counts. Heavy ops (countries+squads, TM/FBref imports, full compute:ratings, photo backfill) stay CLI — clearly listed on the page. `/draft/admin` (commissioner console) is unchanged + got UI member management: ✕ remove button per member, + add chip for profiles not in league.
+
+### Phase 7 polish ✅ done for desktop, mobile audit done
+
+- FIFA-style PlayerCard component (3 variants) on /players Cards toggle, /team, /draft hero, /players/[id]
+- Dashboard with real content: greeting, stat tiles, primary CTA per draft state, recent activity, fixtures, manager grid
+- /draft polish: big tabular countdown, emoji-avatar manager cards with pulsing nominator dot, gradient status pill
+- Login hero: emerald-teal gradient brand, ball emoji
+- Sleek dark-first theme: deep blue-zinc base, emerald primary, ambient radial gradients, glass nav (backdrop-blur), hairline borders, themed scrollbars, emerald text selection
+- Button hover polish app-wide: scale 1.02-1.03, color-matched glows, focus rings
+- Mobile audit: tables wrap in overflow-x-auto, /draft hero stacks on mobile, mobile nav 40px tap targets, /account reachable via mobile nav
+
+### Player photos ✅
+
+`pnpm backfill:photos` script: pulls Transfermarkt image URLs onto real_players.photo_url via fuzzy match (similarity ≥ 0.5). First run: 1137/1213 players got photos. The 76 unmatched keep the first-letter fallback.
 
 ### Phase 5 — Lineups, stat entry, scoring (next big block)
 
@@ -240,7 +304,12 @@ pnpm purge:users            # NUCLEAR: delete all auth users + reset draft (asks
 pnpm migrate:db             # copy data between Supabase projects (env: OLD_DATABASE_URL, NEW_DATABASE_URL)
 pnpm import:wc              # import WC pedigree 1998-2022 from lib/data/wc_pedigree.json
 pnpm compute:percentiles    # repopulate player_factor_percentiles after data refresh
+pnpm remove:member <email>  # exclude a profile from league_members (now superseded by /draft/admin UI)
+pnpm backfill:photos        # backfill real_players.photo_url from Transfermarkt image_url
+pnpm test:rating            # 10 hand-built assertions on lib/personal-rating/compute.ts
 ```
+
+**Most ops have a one-click button on `/admin` now.** The CLI stays the path for: full football-data ingest (rate-limited), TM/FBref imports (CSV-based), full rating engine recompute (~30s, borderline for Vercel), photo backfill.
 
 ---
 
@@ -258,6 +327,13 @@ pnpm compute:percentiles    # repopulate player_factor_percentiles after data re
 - **Supabase pooler hostname is `aws-1-…`** (one, not zero) for newer projects. `aws-0-…` returns "tenant/user not found" — copy the URL verbatim from Supabase's Connect modal rather than constructing it.
 - **Vercel pooler URL required for serverless**. Direct URL works fine locally (faster, no pooler overhead) but exhausts connections under serverless cold starts. Use direct in `.env.local`, pooler in Vercel.
 - **DB region matters more than Vercel region**. Vercel BOM1 + Supabase Tokyo = ~120ms/query. Vercel BOM1 + Supabase Mumbai = ~5ms/query.
+- **Long-running server actions hang the Vercel UI on hobby tier**. Function dies at 10s but the browser keeps waiting on the promise — Next puts the page in "navigating" state and silently queues every subsequent click. Symptom: tab UI freezes after a single mistimed click. Mitigation: keep heavy ingest CLI-only, all web actions stay under 10s.
+- **`defaultValue` on uncontrolled inputs doesn't update on client-side nav**. A `<Link>` to a different URL re-renders the form, but React keeps the existing DOM elements and `defaultValue` is ignored on subsequent renders. Fix: put a `key` derived from URL params on the form. Burned me on /players Reset.
+- **Drizzle `inArray` with empty array throws**. Always guard with a length check.
+- **`set pg_trgm.similarity_threshold = ...` is a non-parameterised statement**. Use `sql.unsafe(...)` with the literal interpolated, or hardcode.
+- **Hubertsidorowicz 2025-26 CSV has only standard + keeper + shooting + playing_time + misc**. Defense/passing/possession columns are absent. The schema has the columns (migration 015), the registry was trimmed to factors with real coverage. Add new CSVs later for richer factors without touching schema.
+- **fotmob-api is gated** by an x-mas rolling SHA-256 header. Reverse-engineered packages exist but break every few months — not worth the maintenance for a 4-friend app.
+- **Supabase admin API hides Postgres errors.** `auth.admin.deleteUser` returns a generic "Database error deleting user" regardless of cause — reproduce via direct SQL to see the real error.
 
 ---
 
@@ -274,10 +350,19 @@ pnpm compute:percentiles    # repopulate player_factor_percentiles after data re
 | Auction server actions | `app/(app)/draft/actions.ts` + `app/(app)/draft/admin/actions.ts` |
 | Auction UI | `app/(app)/draft/AuctionRoom.tsx` |
 | Schema (Drizzle) | `lib/db/schema/` |
-| Hand-written SQL migrations | `lib/db/sql/` (numbered 001-011) |
+| Hand-written SQL migrations | `lib/db/sql/` (numbered 001-016) |
 | Migration between projects | `scripts/migrate-to-new-db.ts` |
 | Health/diag endpoint | `app/api/health/route.ts` |
 | Vercel region pin | `vercel.json` (bom1) |
+| Personal rating compute | `lib/personal-rating/compute.ts` (tests in `scripts/test-personal-rating.ts`) |
+| Personal rating factor registry | `lib/personal-rating/factors.ts` |
+| Personal rating ops | `app/(app)/scouting/actions.ts` (CRUD + bulk apply + clear) |
+| Reusable FIFA card | `components/PlayerCard.tsx` (3 variants) |
+| Predictions scoring | `lib/predictions/score.ts` |
+| Predictions UI | `app/(app)/predictions/` |
+| Account UI | `app/(app)/account/` |
+| One-button admin refresh | `app/(app)/admin/actions.ts` + `RefreshPanel.tsx` |
+| Theme | `app/globals.css` (dark-first, emerald primary, ambient radial gradients) |
 
 ---
 
