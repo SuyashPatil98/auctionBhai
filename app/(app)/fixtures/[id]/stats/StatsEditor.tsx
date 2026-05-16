@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   finalizeFixtureStats,
   removePlayerFromFixture,
@@ -144,6 +145,14 @@ export default function StatsEditor(props: StatsEditorProps) {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {finalized && (
+            <Link
+              href={`/fixtures/${props.fixtureId}/motm`}
+              className="rounded-md bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 text-sm font-semibold transition"
+            >
+              MOTM vote →
+            </Link>
+          )}
           {finalized && props.canUnfinalize && (
             <button
               type="button"
