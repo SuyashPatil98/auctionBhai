@@ -131,7 +131,8 @@ function FixtureRow(props: {
   const finished = props.status === "ft";
   const live = props.status === "live" || props.status === "ht";
   return (
-    <li className="rounded-lg border border-border bg-card px-3 py-2.5">
+    <li className="rounded-lg border border-border bg-card px-3 py-2.5 hover:bg-card/80 transition">
+      <Link href={`/fixtures/${props.id}/stats`} className="block">
       <div className="flex items-center gap-3">
         <div className="min-w-[7.5rem] text-xs text-muted-foreground tabular-nums">
           <Kickoff at={props.kickoffAt.toISOString()} tz={props.tz} />
@@ -176,6 +177,7 @@ function FixtureRow(props: {
           {props.venue}
         </p>
       )}
+      </Link>
     </li>
   );
 }
