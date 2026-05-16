@@ -8,6 +8,7 @@ import {
   fixtures,
   leagueMembers,
   leagues,
+  matchdayScores,
   personalRatings,
   playerPrices,
   profiles,
@@ -18,6 +19,9 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { Kickoff } from "@/components/Kickoff";
 import { getCurrentProfileTimezone } from "@/lib/util/current-profile";
+import StandingsPanel, {
+  type ManagerStanding,
+} from "./StandingsPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -132,6 +136,41 @@ export default async function DashboardPage() {
     .orderBy(asc(fixtures.kickoffAt))
     .limit(5);
 
+  // Standings — cumulative points per manager + most-recent matchday number
+  const allScores = await db
+    .select({
+      profileId: matchdayScores.profileId,
+      matchday: matchdayScores.matchday,
+      points: matchdayScores.points,
+    })
+    .from(matchdayScores);
+
+  const mostRecentMd = allScores.reduce<number | null>(
+    (max, s) => (max === null || s.matchday > max ? s.matchday : max),
+    null
+  );
+
+  const cumulativeByProfile = new Map<string, number>();
+  const lastMdByProfile = new Map<string, number>();
+  for (const s of allScores) {
+    const pts = Number(s.points);
+    cumulativeByProfile.set(
+      s.profileId,
+      (cumulativeByProfile.get(s.profileId) ?? 0) + pts
+    );
+    if (mostRecentMd !== null && s.matchday === mostRecentMd) {
+      lastMdByProfile.set(s.profileId, pts);
+    }
+  }
+
+  const standings: ManagerStanding[] = members.map((m) => ({
+    profileId: m.id,
+    displayName: m.displayName,
+    teamEmoji: m.teamEmoji,
+    matchdayPoints: lastMdByProfile.get(m.id) ?? 0,
+    cumulativePoints: cumulativeByProfile.get(m.id) ?? 0,
+  }));
+
   const daysToKickoff = Math.max(
     0,
     Math.round((WC_KICKOFF.getTime() - Date.now()) / (24 * 60 * 60 * 1000))
@@ -182,6 +221,15 @@ export default async function DashboardPage() {
           hint={WC_KICKOFF.toDateString()}
         />
       </section>
+
+      {user && isMember && (
+        <StandingsPanel
+          currentMatchday={mostRecentMd}
+          standings={standings}
+          myProfileId={user.id}
+          hasAnyScores={allScores.length > 0}
+        />
+      )}
 
       <PrimaryCta draft={draft} isMember={!!isMember} />
 

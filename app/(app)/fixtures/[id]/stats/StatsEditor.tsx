@@ -175,9 +175,9 @@ export default function StatsEditor(props: StatsEditorProps) {
               disabled={isPending}
               onClick={handleImport}
               className="rounded-md border border-emerald-600/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 px-3 py-1.5 text-sm font-semibold transition disabled:opacity-50"
-              title="Fetch lineups, goals, cards and minutes from football-data.org"
+              title="Fetch lineups, goals, cards from football-data.org and recompute matchday standings"
             >
-              {isPending ? "Pulling…" : "↓ Pull from API"}
+              {isPending ? "Pulling…" : "↓ Pull stats & score"}
             </button>
           )}
           {finalized && (

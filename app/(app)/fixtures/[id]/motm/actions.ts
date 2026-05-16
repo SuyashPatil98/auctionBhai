@@ -14,6 +14,7 @@ import {
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
 import { requireLeagueMember } from "@/lib/util/require-league-member";
+import { sweepMatchday } from "@/lib/scoring/sweep";
 
 const VOTE_WINDOW_HOURS = 24;
 
@@ -190,6 +191,22 @@ export async function resolveMotm(fixtureId: string) {
     .update(fixtures)
     .set({ motmResolvedAt: new Date() })
     .where(eq(fixtures.id, fixtureId));
+
+  // Re-sweep the matchday so MOTM bonus is applied to standings
+  try {
+    const [fx] = await db
+      .select({ matchday: fixtures.matchday })
+      .from(fixtures)
+      .where(eq(fixtures.id, fixtureId))
+      .limit(1);
+    if (fx) {
+      await sweepMatchday(fx.matchday);
+      revalidatePath(`/matchday/${fx.matchday}`);
+      revalidatePath("/dashboard");
+    }
+  } catch (e) {
+    console.error("post-MOTM rescore failed:", e);
+  }
 
   revalidatePath(`/fixtures/${fixtureId}/motm`);
   revalidatePath(`/fixtures/${fixtureId}`);

@@ -14,6 +14,7 @@ import {
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
 import { requireLeagueMember } from "@/lib/util/require-league-member";
+import { sweepMatchday } from "@/lib/scoring/sweep";
 import {
   isFormationKey,
   type FormationKey,
@@ -147,6 +148,15 @@ export async function saveLineup(input: SaveLineupInput) {
         updatedAt: new Date(),
       },
     });
+
+  // If this MD's fixtures have already produced stats, the lineup change
+  // affects the score — re-sweep. Idempotent + cheap.
+  try {
+    await sweepMatchday(md);
+    revalidatePath(`/matchday/${md}`);
+  } catch (e) {
+    console.error("post-lineup rescore failed:", e);
+  }
 
   revalidatePath(`/team/lineup/${md}`);
   revalidatePath("/team");

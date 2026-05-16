@@ -14,6 +14,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { requireLeagueMember } from "@/lib/util/require-league-member";
 import { getMatch, type MatchDetail } from "@/lib/external/football-data";
+import { sweepMatchday } from "@/lib/scoring/sweep";
 
 // ----------------------------------------------------------------------------
 // Auth + permission
@@ -73,6 +74,7 @@ export async function setFixtureScore(
 
   // Recompute derived stats: clean sheet for all GKs/DEFs/MIDs etc. on each side.
   await recomputeCleanSheetsForFixture(fixtureId);
+  await rescoreFixtureMatchday(fixtureId);
 
   revalidatePath(`/fixtures/${fixtureId}`);
   revalidatePath(`/fixtures/${fixtureId}/stats`);
@@ -166,6 +168,7 @@ export async function upsertPlayerStats(
     });
 
   await recomputeCleanSheetsForFixture(fixtureId);
+  await rescoreFixtureMatchday(fixtureId);
 
   revalidatePath(`/fixtures/${fixtureId}`);
   revalidatePath(`/fixtures/${fixtureId}/stats`);
@@ -195,6 +198,8 @@ export async function removePlayerFromFixture(
       )
     );
 
+  await rescoreFixtureMatchday(fixtureId);
+
   revalidatePath(`/fixtures/${fixtureId}`);
   revalidatePath(`/fixtures/${fixtureId}/stats`);
 }
@@ -214,6 +219,8 @@ export async function finalizeFixtureStats(fixtureId: string) {
       status: sql`case when ${fixtures.status} in ('scheduled', 'live', 'ht') then 'ft' else ${fixtures.status} end`,
     })
     .where(eq(fixtures.id, fixtureId));
+
+  await rescoreFixtureMatchday(fixtureId);
 
   revalidatePath(`/fixtures/${fixtureId}`);
   revalidatePath(`/fixtures/${fixtureId}/stats`);
@@ -235,6 +242,8 @@ export async function unfinalizeFixtureStats(fixtureId: string) {
     .update(fixtures)
     .set({ statsFinalizedAt: null, motmResolvedAt: null })
     .where(eq(fixtures.id, fixtureId));
+
+  await rescoreFixtureMatchday(fixtureId);
 
   revalidatePath(`/fixtures/${fixtureId}`);
   revalidatePath(`/fixtures/${fixtureId}/stats`);
@@ -545,6 +554,7 @@ export async function importMatchStatsFromApi(
   }
 
   await recomputeCleanSheetsForFixture(fixtureId);
+  await rescoreFixtureMatchday(fixtureId);
 
   revalidatePath(`/fixtures/${fixtureId}`);
   revalidatePath(`/fixtures/${fixtureId}/stats`);
@@ -559,6 +569,28 @@ export async function importMatchStatsFromApi(
     homeScore,
     awayScore,
   };
+}
+
+/**
+ * Best-effort: after any stat-affecting mutation, re-score the fixture's
+ * matchday so standings stay in sync. Failures are logged but don't roll
+ * back the caller's write.
+ */
+async function rescoreFixtureMatchday(fixtureId: string) {
+  try {
+    const [fx] = await db
+      .select({ matchday: fixtures.matchday })
+      .from(fixtures)
+      .where(eq(fixtures.id, fixtureId))
+      .limit(1);
+    if (fx) {
+      await sweepMatchday(fx.matchday);
+      revalidatePath(`/matchday/${fx.matchday}`);
+      revalidatePath("/dashboard");
+    }
+  } catch (e) {
+    console.error("rescoreFixtureMatchday failed:", e);
+  }
 }
 
 async function recomputeCleanSheetsForFixture(fixtureId: string) {
