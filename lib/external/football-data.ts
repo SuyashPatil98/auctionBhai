@@ -220,6 +220,52 @@ export async function getTeam(id: number) {
   return fdFetch<Team>(`/teams/${id}`);
 }
 
+// Single-match detailed view — includes lineups, goals, bookings, subs.
+// Only populated post-match (status FINISHED). Pre-match returns scheduled
+// teams + venue but no player-level data.
+
+export type MatchEventScorer = {
+  id: number;
+  name: string;
+};
+
+export type MatchDetail = Match & {
+  homeTeam: Match["homeTeam"] & {
+    coach?: { id: number; name: string };
+    lineup?: Array<{ id: number; name: string; position?: string; shirtNumber?: number }>;
+    bench?: Array<{ id: number; name: string; position?: string; shirtNumber?: number }>;
+  };
+  awayTeam: Match["awayTeam"] & {
+    coach?: { id: number; name: string };
+    lineup?: Array<{ id: number; name: string; position?: string; shirtNumber?: number }>;
+    bench?: Array<{ id: number; name: string; position?: string; shirtNumber?: number }>;
+  };
+  goals?: Array<{
+    minute: number;
+    injuryTime?: number | null;
+    type: "REGULAR" | "OWN" | "PENALTY";
+    team: { id: number };
+    scorer: MatchEventScorer;
+    assist?: MatchEventScorer | null;
+  }>;
+  bookings?: Array<{
+    minute: number;
+    team: { id: number };
+    player: MatchEventScorer;
+    card: "YELLOW" | "RED" | "YELLOW_RED";
+  }>;
+  substitutions?: Array<{
+    minute: number;
+    team: { id: number };
+    playerOut: MatchEventScorer;
+    playerIn: MatchEventScorer;
+  }>;
+};
+
+export async function getMatch(id: number) {
+  return fdFetch<MatchDetail>(`/matches/${id}`);
+}
+
 export function rateLimitSnapshot() {
   return {
     remaining: state.remaining,

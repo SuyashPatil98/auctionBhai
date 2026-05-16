@@ -5,10 +5,13 @@
  * Idempotent in the safe direction: skips any manager who already has at
  * least one active roster row. Won't stomp real auction results.
  *
- * Pass --reset to first wipe non-auction rosters and start fresh.
+ * Flags:
+ *   --wipe   delete all fake (acquired_via='free_agent') rosters and exit
+ *   --reset  wipe then re-seed
  *
  * Usage:
  *   pnpm seed:test-rosters
+ *   pnpm seed:test-rosters --wipe
  *   pnpm seed:test-rosters --reset
  */
 
@@ -20,6 +23,7 @@ const QUOTA = { GK: 2, DEF: 6, MID: 7, FWD: 5 } as const;
 
 async function main() {
   const reset = process.argv.includes("--reset");
+  const wipeOnly = process.argv.includes("--wipe");
 
   const { db } = await import("../lib/db");
   const { and, eq, sql } = await import("drizzle-orm");
@@ -40,7 +44,7 @@ async function main() {
     return;
   }
 
-  if (reset) {
+  if (reset || wipeOnly) {
     const r = await db
       .delete(rosters)
       .where(
@@ -52,7 +56,8 @@ async function main() {
         )
       )
       .returning({ id: rosters.realPlayerId });
-    console.log(`Reset: removed ${r.length} fake roster rows.`);
+    console.log(`Removed ${r.length} fake roster rows.`);
+    if (wipeOnly) return;
   }
 
   // Find which managers already have rosters — skip them.

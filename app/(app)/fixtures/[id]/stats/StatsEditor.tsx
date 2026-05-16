@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   finalizeFixtureStats,
+  importMatchStatsFromApi,
   removePlayerFromFixture,
   setFixtureScore,
   unfinalizeFixtureStats,
   upsertPlayerStats,
+  type ImportResult,
 } from "./actions";
 
 // ----------------------------------------------------------------------------
@@ -74,6 +76,7 @@ export default function StatsEditor(props: StatsEditorProps) {
   const [isPending, startTransition] = useTransition();
   const [picker, setPicker] = useState<SideKey | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importReport, setImportReport] = useState<ImportResult | null>(null);
 
   const finalized = !!props.finalizedAt;
   const editable = props.canEdit && !finalized;
@@ -102,6 +105,27 @@ export default function StatsEditor(props: StatsEditorProps) {
     startTransition(() => {
       finalizeFixtureStats(props.fixtureId)
         .then(() => router.refresh())
+        .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    });
+  }
+
+  function handleImport() {
+    if (
+      props.initialStats.length > 0 &&
+      !confirm(
+        "Overwrite existing rows with API data? Any manual edits to lineups/minutes/goals will be replaced. (Your saved score stays.)"
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setImportReport(null);
+    startTransition(() => {
+      importMatchStatsFromApi(props.fixtureId)
+        .then((res) => {
+          setImportReport(res);
+          router.refresh();
+        })
         .catch((e) => setError(e instanceof Error ? e.message : String(e)));
     });
   }
@@ -144,7 +168,18 @@ export default function StatsEditor(props: StatsEditorProps) {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {editable && (
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={handleImport}
+              className="rounded-md border border-emerald-600/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 px-3 py-1.5 text-sm font-semibold transition disabled:opacity-50"
+              title="Fetch lineups, goals, cards and minutes from football-data.org"
+            >
+              {isPending ? "Pulling…" : "↓ Pull from API"}
+            </button>
+          )}
           {finalized && (
             <Link
               href={`/fixtures/${props.fixtureId}/motm`}
@@ -220,6 +255,29 @@ export default function StatsEditor(props: StatsEditorProps) {
       {error && (
         <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           {error}
+        </div>
+      )}
+
+      {importReport && (
+        <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
+          Pulled · score {importReport.homeScore}–{importReport.awayScore} ·{" "}
+          {importReport.homePlayersImported + importReport.awayPlayersImported}{" "}
+          players (
+          {importReport.homePlayersImported}H/{importReport.awayPlayersImported}
+          A) · {importReport.goalsImported} goals ·{" "}
+          {importReport.cardsImported} cards ·{" "}
+          {importReport.substitutionsApplied} subs
+          {importReport.unmappedFromApi > 0 && (
+            <>
+              {" · "}
+              <span className="text-amber-600 dark:text-amber-400">
+                {importReport.unmappedFromApi} unmapped from API (not in
+                our DB)
+              </span>
+            </>
+          )}
+          . Review fields below — own goals, pen misses, pen saves still
+          manual.
         </div>
       )}
 
