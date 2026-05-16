@@ -385,9 +385,9 @@ export default function AuctionRoom(props: AuctionRoomProps) {
               />
             )}
 
-            <div className="grid grid-cols-[auto_1fr] gap-5 items-start">
-              {/* Hero card on the left */}
-              <div className="w-44 shrink-0">
+            <div className="grid sm:grid-cols-[auto_1fr] gap-4 sm:gap-5 items-start">
+              {/* Hero card — full width on mobile, fixed 176px on desktop */}
+              <div className="w-32 sm:w-44 mx-auto sm:mx-0 shrink-0">
                 <PlayerCard
                   variant="grid"
                   player={{
@@ -413,7 +413,7 @@ export default function AuctionRoom(props: AuctionRoomProps) {
               {/* Bid info on the right */}
               <div className="space-y-3 min-w-0">
                 <div>
-                  <p className="text-3xl font-bold leading-tight">
+                  <p className="text-2xl sm:text-3xl font-bold leading-tight">
                     {props.currentLot.playerName}
                   </p>
                   <p className="text-sm text-muted-foreground mt-1">
@@ -423,12 +423,12 @@ export default function AuctionRoom(props: AuctionRoomProps) {
                     )}
                   </p>
                 </div>
-                <div className="grid grid-cols-[1fr_auto] gap-3 items-stretch">
-                  <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
+                <div className="grid grid-cols-[1fr_auto] gap-2 sm:gap-3 items-stretch">
+                  <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 sm:p-4">
                     <p className="text-xs uppercase tracking-widest text-muted-foreground">
                       Current bid
                     </p>
-                    <p className="text-5xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400 leading-none mt-1">
+                    <p className="text-4xl sm:text-5xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400 leading-none mt-1">
                       {props.currentLot.currentBid}
                     </p>
                     <p className="text-xs text-muted-foreground mt-2">
@@ -944,8 +944,8 @@ function PassButton({
 
 function BidLog({ bids }: { bids: Bid[] }) {
   return (
-    <div className="rounded-lg border border-border bg-card/50 overflow-hidden">
-      <table className="w-full text-sm">
+    <div className="rounded-lg border border-border bg-card/50 overflow-x-auto">
+      <table className="w-full min-w-[480px] text-sm">
         <thead className="bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
           <tr>
             <th className="text-left px-3 py-1.5">Time</th>

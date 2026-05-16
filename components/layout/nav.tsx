@@ -61,17 +61,23 @@ export function Nav({ displayName }: { displayName?: string | null }) {
           </form>
         </div>
       </div>
-      {/* Mobile nav */}
-      <nav className="md:hidden flex items-center gap-0 overflow-x-auto border-t border-border/60 px-2 py-1">
+      {/* Mobile nav — bigger tap targets, scrolls horizontally on overflow */}
+      <nav className="md:hidden flex items-center gap-0 overflow-x-auto border-t border-border/60 px-2 py-1 scrollbar-thin">
         {LINKS.map((link) => (
           <Link
             key={link.href}
             href={link.href}
-            className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground whitespace-nowrap"
+            className="px-3 py-2.5 text-xs text-muted-foreground hover:text-foreground active:bg-muted/60 rounded-md whitespace-nowrap min-h-[40px] inline-flex items-center"
           >
             {link.label}
           </Link>
         ))}
+        <Link
+          href="/account"
+          className="px-3 py-2.5 text-xs text-muted-foreground hover:text-foreground active:bg-muted/60 rounded-md whitespace-nowrap min-h-[40px] inline-flex items-center"
+        >
+          Account
+        </Link>
       </nav>
     </header>
   );

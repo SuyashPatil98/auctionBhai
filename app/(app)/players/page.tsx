@@ -478,7 +478,8 @@ export default async function PlayersPage({
         </div>
       ) : (
         <div className="rounded-lg border border-border overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[820px] text-sm">
             <thead className="bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="text-right px-3 py-2 w-16">Price</th>
@@ -575,6 +576,7 @@ export default async function PlayersPage({
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

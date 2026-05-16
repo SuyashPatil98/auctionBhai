@@ -363,8 +363,8 @@ export default async function DraftAdminPage() {
         {recentAudit.length === 0 ? (
           <p className="text-sm text-muted-foreground">No admin actions yet.</p>
         ) : (
-          <div className="rounded-lg border border-border overflow-hidden">
-            <table className="w-full text-xs">
+          <div className="rounded-lg border border-border overflow-x-auto">
+            <table className="w-full min-w-[480px] text-xs">
               <thead className="bg-muted/50 text-muted-foreground">
                 <tr>
                   <th className="text-left px-2 py-1.5">When</th>
