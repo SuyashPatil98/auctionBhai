@@ -102,3 +102,16 @@ export function msUntilNextOpen(state: WindowState, now: number): number {
   if (state.isOpen) return 0;
   return Math.max(0, state.opensAt - now);
 }
+
+/**
+ * Key for bucketing free-agent bids by window. YYYY-MM-DD of the Tuesday
+ * the window opened, UTC. Stable across the 24h window so all bids land
+ * in the same bucket regardless of when they were placed.
+ */
+export function windowKeyFor(opensAtMs: number): string {
+  const d = new Date(opensAtMs);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}

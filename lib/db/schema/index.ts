@@ -13,3 +13,4 @@ export * from "./wc_pedigree";
 export * from "./personal_rating";
 export * from "./predictions";
 export * from "./matchday";
+export * from "./free_agent";

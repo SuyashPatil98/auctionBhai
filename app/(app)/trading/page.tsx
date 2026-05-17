@@ -1,15 +1,19 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, ne, notInArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
+  countries,
   drafts,
   fixtures,
+  freeAgentBids,
+  freeAgentResolutions,
   leagues,
+  managerBudgets,
   playerPrices,
+  profiles,
   realPlayers,
   rosters,
-  countries,
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfileTimezone } from "@/lib/util/current-profile";
@@ -21,10 +25,15 @@ import {
 } from "@/lib/trading/quota";
 import {
   computeWindowState,
+  windowKeyFor,
   type WindowState,
 } from "@/lib/trading/window";
 import type { Position } from "@/lib/scoring/points";
 import SellPanel, { type SellablePlayer } from "./SellPanel";
+import FreeAgentPanel, {
+  type FreeAgent,
+  type ResolutionRow,
+} from "./FreeAgentPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -112,6 +121,141 @@ export default async function TradingPage() {
     enginePrice: p.enginePrice,
   }));
 
+  // -- Free-agent panel data ----------------------------------------------
+  const windowKey = windowKeyFor(windowState.opensAt);
+
+  // All currently-unowned players (no active roster row).
+  const ownedIdsRows = await db
+    .select({ id: rosters.realPlayerId })
+    .from(rosters)
+    .where(and(eq(rosters.leagueId, league.id), isNull(rosters.droppedAt)));
+  const ownedIds = ownedIdsRows.map((r) => r.id);
+
+  const freeAgentRows = await db
+    .select({
+      realPlayerId: realPlayers.id,
+      displayName: realPlayers.displayName,
+      position: realPlayers.position,
+      photoUrl: realPlayers.photoUrl,
+      countryName: countries.name,
+      enginePrice: playerPrices.price,
+    })
+    .from(realPlayers)
+    .innerJoin(countries, eq(countries.id, realPlayers.countryId))
+    .leftJoin(playerPrices, eq(playerPrices.realPlayerId, realPlayers.id))
+    .where(
+      and(
+        eq(realPlayers.isActive, true),
+        ownedIds.length ? notInArray(realPlayers.id, ownedIds) : undefined
+      )
+    )
+    .orderBy(desc(playerPrices.price))
+    .limit(500);
+
+  // My bids + others' counts for these players in the current window
+  const myBidRows = await db
+    .select({
+      realPlayerId: freeAgentBids.realPlayerId,
+      amount: freeAgentBids.amount,
+    })
+    .from(freeAgentBids)
+    .where(
+      and(
+        eq(freeAgentBids.windowKey, windowKey),
+        eq(freeAgentBids.profileId, user.id),
+        isNull(freeAgentBids.withdrawnAt)
+      )
+    );
+  const myBidByPlayer = new Map(
+    myBidRows.map((b) => [b.realPlayerId, b.amount])
+  );
+
+  const otherBidCountRows = (await db.execute(sql`
+    select real_player_id as "realPlayerId", count(*)::int as "n"
+    from free_agent_bids
+    where window_key = ${windowKey}
+      and withdrawn_at is null
+      and profile_id <> ${user.id}
+    group by real_player_id
+  `)) as unknown as Array<{ realPlayerId: string; n: number }>;
+  const otherCountByPlayer = new Map(
+    otherBidCountRows.map((r) => [r.realPlayerId, r.n])
+  );
+
+  const freeAgents: FreeAgent[] = freeAgentRows.map((p) => ({
+    realPlayerId: p.realPlayerId,
+    displayName: p.displayName,
+    position: p.position as Position,
+    photoUrl: p.photoUrl,
+    countryName: p.countryName,
+    enginePrice: p.enginePrice,
+    myBid: myBidByPlayer.get(p.realPlayerId) ?? null,
+    otherBidsCount: otherCountByPlayer.get(p.realPlayerId) ?? 0,
+  }));
+
+  // Most-recent resolved window (might be the current one if commissioner
+  // already force-resolved, or a prior one).
+  const recentResolutions = await db
+    .select({
+      realPlayerId: freeAgentResolutions.realPlayerId,
+      windowKey: freeAgentResolutions.windowKey,
+      winnerProfileId: freeAgentResolutions.winnerProfileId,
+      winningAmount: freeAgentResolutions.winningAmount,
+      biddersCount: freeAgentResolutions.biddersCount,
+      displayName: realPlayers.displayName,
+      position: realPlayers.position,
+      winnerName: profiles.displayName,
+    })
+    .from(freeAgentResolutions)
+    .innerJoin(
+      realPlayers,
+      eq(realPlayers.id, freeAgentResolutions.realPlayerId)
+    )
+    .leftJoin(
+      profiles,
+      eq(profiles.id, freeAgentResolutions.winnerProfileId)
+    )
+    .orderBy(desc(freeAgentResolutions.resolvedAt))
+    .limit(30);
+
+  const resolutions: ResolutionRow[] = recentResolutions.map((r) => ({
+    realPlayerId: r.realPlayerId,
+    displayName: r.displayName,
+    position: r.position as Position,
+    winnerProfileId: r.winnerProfileId,
+    winnerName: r.winnerName,
+    winningAmount: r.winningAmount,
+    biddersCount: r.biddersCount,
+  }));
+
+  // Commissioner check + budget remaining
+  const [me] = await db
+    .select({ role: profiles.role })
+    .from(profiles)
+    .where(eq(profiles.id, user.id))
+    .limit(1);
+  const isCommissioner = me?.role === "commissioner";
+
+  const [draftFull] = await db
+    .select({ budgetPerManager: drafts.budgetPerManager, id: drafts.id })
+    .from(drafts)
+    .where(eq(drafts.leagueId, league.id))
+    .limit(1);
+  const [myBudget] = draftFull
+    ? await db
+        .select()
+        .from(managerBudgets)
+        .where(
+          and(
+            eq(managerBudgets.draftId, draftFull.id),
+            eq(managerBudgets.profileId, user.id)
+          )
+        )
+        .limit(1)
+    : [];
+  const remainingBudget =
+    (draftFull?.budgetPerManager ?? 500) - (myBudget?.spent ?? 0);
+
   const myComposition = composition(
     myRoster.map((p) => ({ position: p.position as Position }))
   );
@@ -159,12 +303,17 @@ export default async function TradingPage() {
         available={windowState.isOpen && !windowState.knockoutCutoffPassed}
       />
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <PlaceholderCard
-          title="Free-agent bids"
-          subtitle="Sealed-bid auction. Submit a max for any unowned player; resolves at window close."
-          available={windowState.isOpen}
-        />
+      <FreeAgentPanel
+        available={windowState.isOpen && !windowState.knockoutCutoffPassed}
+        freeAgents={freeAgents}
+        resolutions={resolutions}
+        remainingBudget={remainingBudget}
+        canForceResolve={isCommissioner}
+        windowOpen={windowState.isOpen}
+        windowKey={windowKey}
+      />
+
+      <div className="grid gap-4 sm:grid-cols-1">
         <PlaceholderCard
           title="Trade with manager"
           subtitle="Player-for-player + credit balance. Mutual accept. 2 trades per window."
@@ -173,7 +322,7 @@ export default async function TradingPage() {
       </div>
 
       <p className="text-xs text-muted-foreground text-center">
-        Free-agent + trade UIs land as 5.10 → 5.11.
+        Trade UI lands as 5.11.
       </p>
     </div>
   );

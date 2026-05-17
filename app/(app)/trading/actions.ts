@@ -8,9 +8,13 @@ import {
   auditLog,
   drafts,
   fixtures,
+  freeAgentBids,
+  freeAgentResolutions,
   leagues,
   managerBudgets,
   managerLineups,
+  playerPrices,
+  profiles,
   realPlayers,
   rosters,
 } from "@/lib/db/schema";
@@ -19,6 +23,8 @@ import { requireLeagueMember } from "@/lib/util/require-league-member";
 import {
   assertTradingAllowed,
   computeWindowState,
+  windowKeyFor,
+  type WindowState,
 } from "@/lib/trading/window";
 
 async function requireProfileId(): Promise<string> {
@@ -30,7 +36,7 @@ async function requireProfileId(): Promise<string> {
   return user.id;
 }
 
-async function loadWindowState() {
+async function loadWindowState(): Promise<WindowState> {
   const [knockoutFx] = await db
     .select({ kickoffAt: fixtures.kickoffAt })
     .from(fixtures)
@@ -209,4 +215,306 @@ export async function sellPlayer(realPlayerId: string): Promise<SellResult> {
     revalidatePath("/dashboard");
     return result;
   });
+}
+
+// ----------------------------------------------------------------------------
+// Free-agent sealed-bid auction (5.10)
+// ----------------------------------------------------------------------------
+
+/**
+ * Place (or update) a blind bid on an unowned player for this window.
+ * Bids are blind — only the bidder sees their own amount until resolution.
+ *
+ * Refusals:
+ *   - Outside trading window
+ *   - Player is already owned by you (or anyone)
+ *   - amount < 1 or amount > your remaining budget
+ */
+export async function placeBlindBid(
+  realPlayerId: string,
+  amount: number
+): Promise<{ windowKey: string; amount: number }> {
+  const profileId = await requireProfileId();
+  await requireLeagueMember(profileId);
+  const state = await loadWindowState();
+  assertTradingAllowed(state);
+
+  if (!realPlayerId) throw new Error("realPlayerId required");
+  if (!Number.isInteger(amount) || amount < 1 || amount > 10000) {
+    throw new Error("bid amount must be a positive integer up to 10000");
+  }
+
+  const [league] = await db.select().from(leagues).limit(1);
+  if (!league) throw new Error("no league");
+
+  // Refuse if anyone owns this player right now
+  const [owned] = await db
+    .select({ id: rosters.realPlayerId })
+    .from(rosters)
+    .where(
+      and(
+        eq(rosters.leagueId, league.id),
+        eq(rosters.realPlayerId, realPlayerId),
+        isNull(rosters.droppedAt)
+      )
+    )
+    .limit(1);
+  if (owned) {
+    throw new Error("this player is already owned — can't bid on them");
+  }
+
+  // Budget check
+  const [draft] = await db
+    .select({
+      id: drafts.id,
+      budgetPerManager: drafts.budgetPerManager,
+    })
+    .from(drafts)
+    .where(eq(drafts.leagueId, league.id))
+    .limit(1);
+  if (!draft) throw new Error("no draft");
+  const [budget] = await db
+    .select()
+    .from(managerBudgets)
+    .where(
+      and(
+        eq(managerBudgets.draftId, draft.id),
+        eq(managerBudgets.profileId, profileId)
+      )
+    )
+    .limit(1);
+  const remaining = draft.budgetPerManager - (budget?.spent ?? 0);
+  if (amount > remaining) {
+    throw new Error(
+      `bid ${amount} exceeds your remaining budget (${remaining} cr)`
+    );
+  }
+
+  const windowKey = windowKeyFor(state.opensAt);
+
+  await db
+    .insert(freeAgentBids)
+    .values({
+      windowKey,
+      realPlayerId,
+      profileId,
+      amount,
+    })
+    .onConflictDoUpdate({
+      target: [
+        freeAgentBids.windowKey,
+        freeAgentBids.realPlayerId,
+        freeAgentBids.profileId,
+      ],
+      set: {
+        amount,
+        placedAt: new Date(), // re-bid resets timestamp (tie-break disadvantage)
+        withdrawnAt: null,
+      },
+    });
+
+  revalidatePath("/trading");
+  return { windowKey, amount };
+}
+
+export async function withdrawBid(realPlayerId: string) {
+  const profileId = await requireProfileId();
+  await requireLeagueMember(profileId);
+  const state = await loadWindowState();
+  assertTradingAllowed(state);
+
+  const windowKey = windowKeyFor(state.opensAt);
+  await db
+    .update(freeAgentBids)
+    .set({ withdrawnAt: new Date() })
+    .where(
+      and(
+        eq(freeAgentBids.windowKey, windowKey),
+        eq(freeAgentBids.realPlayerId, realPlayerId),
+        eq(freeAgentBids.profileId, profileId),
+        isNull(freeAgentBids.withdrawnAt)
+      )
+    );
+
+  revalidatePath("/trading");
+}
+
+/**
+ * Resolve every unresolved (window, player) lot with active bids.
+ *
+ * For each lot:
+ *   - Sort bids by (amount desc, placed_at asc)
+ *   - Walk bidders in order; first one who can afford the amount wins.
+ *   - Award: create roster row (acquired_via='free_agent'), increment
+ *     winner.spent + slotsFilled.
+ *   - If nobody can afford, log a no-winner resolution.
+ *
+ * Idempotent — already-resolved (windowKey, realPlayerId) pairs are
+ * skipped.
+ *
+ * Can be called by:
+ *   - Commissioner button (force-resolve current window any time)
+ *   - Auto on window close (no scheduler yet — manual trigger)
+ */
+export type ResolutionReport = {
+  resolved: number;
+  awarded: number;
+  windowKey: string;
+};
+
+export async function resolveFreeAgentWindow(
+  targetWindowKey?: string
+): Promise<ResolutionReport> {
+  const profileId = await requireProfileId();
+  await requireLeagueMember(profileId);
+
+  // Default = the most recent window with any active bids
+  let windowKey = targetWindowKey;
+  if (!windowKey) {
+    const [latest] = (await db.execute(sql`
+      select window_key as "windowKey"
+      from free_agent_bids
+      where withdrawn_at is null
+      order by window_key desc
+      limit 1
+    `)) as unknown as Array<{ windowKey: string }>;
+    if (!latest) return { resolved: 0, awarded: 0, windowKey: "" };
+    windowKey = latest.windowKey;
+  }
+
+  const [league] = await db.select().from(leagues).limit(1);
+  if (!league) throw new Error("no league");
+  const [draft] = await db
+    .select({ id: drafts.id, budgetPerManager: drafts.budgetPerManager })
+    .from(drafts)
+    .where(eq(drafts.leagueId, league.id))
+    .limit(1);
+  if (!draft) throw new Error("no draft");
+
+  // All (player, bids) for this window not yet resolved
+  const bidsByPlayer = (await db.execute(sql`
+    select
+      fab.real_player_id as "realPlayerId",
+      fab.profile_id      as "profileId",
+      fab.amount          as "amount",
+      fab.placed_at       as "placedAt"
+    from free_agent_bids fab
+    where fab.window_key = ${windowKey}
+      and fab.withdrawn_at is null
+      and not exists (
+        select 1 from free_agent_resolutions far
+         where far.window_key = fab.window_key
+           and far.real_player_id = fab.real_player_id
+      )
+    order by fab.real_player_id, fab.amount desc, fab.placed_at asc
+  `)) as unknown as Array<{
+    realPlayerId: string;
+    profileId: string;
+    amount: number;
+    placedAt: Date;
+  }>;
+
+  // Group by player
+  const byPlayer = new Map<string, typeof bidsByPlayer>();
+  for (const b of bidsByPlayer) {
+    if (!byPlayer.has(b.realPlayerId)) byPlayer.set(b.realPlayerId, []);
+    byPlayer.get(b.realPlayerId)!.push(b);
+  }
+
+  let resolved = 0;
+  let awarded = 0;
+
+  for (const [realPlayerId, bids] of byPlayer) {
+    // Skip if player got owned via some other path mid-resolution
+    const [owned] = await db
+      .select({ id: rosters.realPlayerId })
+      .from(rosters)
+      .where(
+        and(
+          eq(rosters.leagueId, league.id),
+          eq(rosters.realPlayerId, realPlayerId),
+          isNull(rosters.droppedAt)
+        )
+      )
+      .limit(1);
+    if (owned) {
+      await db.insert(freeAgentResolutions).values({
+        windowKey,
+        realPlayerId,
+        winnerProfileId: null,
+        winningAmount: null,
+        biddersCount: bids.length,
+      });
+      resolved++;
+      continue;
+    }
+
+    let winner: { profileId: string; amount: number } | null = null;
+    for (const bid of bids) {
+      const [b] = await db
+        .select()
+        .from(managerBudgets)
+        .where(
+          and(
+            eq(managerBudgets.draftId, draft.id),
+            eq(managerBudgets.profileId, bid.profileId)
+          )
+        )
+        .limit(1);
+      const remaining = draft.budgetPerManager - (b?.spent ?? 0);
+      if (bid.amount <= remaining) {
+        winner = { profileId: bid.profileId, amount: bid.amount };
+        break;
+      }
+    }
+
+    if (winner) {
+      // Award
+      await db.insert(rosters).values({
+        leagueId: league.id,
+        profileId: winner.profileId,
+        realPlayerId,
+        acquiredVia: "free_agent",
+        acquiredAmount: winner.amount,
+      });
+      await db
+        .update(managerBudgets)
+        .set({
+          spent: sql`${managerBudgets.spent} + ${winner.amount}`,
+          slotsFilled: sql`${managerBudgets.slotsFilled} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(managerBudgets.draftId, draft.id),
+            eq(managerBudgets.profileId, winner.profileId)
+          )
+        );
+      awarded++;
+    }
+
+    await db.insert(freeAgentResolutions).values({
+      windowKey,
+      realPlayerId,
+      winnerProfileId: winner?.profileId ?? null,
+      winningAmount: winner?.amount ?? null,
+      biddersCount: bids.length,
+    });
+    resolved++;
+  }
+
+  await db.insert(auditLog).values({
+    actorProfileId: profileId,
+    action: "trading.fa_resolve",
+    entity: "free_agent_resolutions",
+    entityId: null,
+    before: null,
+    after: { windowKey, resolved, awarded },
+  });
+
+  revalidatePath("/trading");
+  revalidatePath("/team");
+  revalidatePath("/dashboard");
+
+  return { resolved, awarded, windowKey };
 }
