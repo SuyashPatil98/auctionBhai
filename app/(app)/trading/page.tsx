@@ -6,8 +6,10 @@ import {
   drafts,
   fixtures,
   leagues,
+  playerPrices,
   realPlayers,
   rosters,
+  countries,
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfileTimezone } from "@/lib/util/current-profile";
@@ -22,6 +24,7 @@ import {
   type WindowState,
 } from "@/lib/trading/window";
 import type { Position } from "@/lib/scoring/points";
+import SellPanel, { type SellablePlayer } from "./SellPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -75,7 +78,7 @@ export default async function TradingPage() {
   const now = Date.now();
   const windowState = computeWindowState(now, knockoutCutoff);
 
-  // My squad
+  // My squad — with country + engine price for the sell UI
   const myRoster = await db
     .select({
       realPlayerId: rosters.realPlayerId,
@@ -83,9 +86,13 @@ export default async function TradingPage() {
       displayName: realPlayers.displayName,
       photoUrl: realPlayers.photoUrl,
       acquiredAmount: rosters.acquiredAmount,
+      countryName: countries.name,
+      enginePrice: playerPrices.price,
     })
     .from(rosters)
     .innerJoin(realPlayers, eq(realPlayers.id, rosters.realPlayerId))
+    .innerJoin(countries, eq(countries.id, realPlayers.countryId))
+    .leftJoin(playerPrices, eq(playerPrices.realPlayerId, realPlayers.id))
     .where(
       and(
         eq(rosters.leagueId, league.id),
@@ -94,6 +101,16 @@ export default async function TradingPage() {
       )
     )
     .orderBy(asc(realPlayers.position), asc(realPlayers.displayName));
+
+  const sellablePlayers: SellablePlayer[] = myRoster.map((p) => ({
+    realPlayerId: p.realPlayerId,
+    displayName: p.displayName,
+    position: p.position as Position,
+    photoUrl: p.photoUrl,
+    countryName: p.countryName,
+    acquiredAmount: p.acquiredAmount,
+    enginePrice: p.enginePrice,
+  }));
 
   const myComposition = composition(
     myRoster.map((p) => ({ position: p.position as Position }))
@@ -137,12 +154,12 @@ export default async function TradingPage() {
         )}
       </section>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <PlaceholderCard
-          title="Sell to market"
-          subtitle="Get 50% credit back. Player re-lists at engine price for everyone to bid on."
-          available={windowState.isOpen}
-        />
+      <SellPanel
+        players={sellablePlayers}
+        available={windowState.isOpen && !windowState.knockoutCutoffPassed}
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2">
         <PlaceholderCard
           title="Free-agent bids"
           subtitle="Sealed-bid auction. Submit a max for any unowned player; resolves at window close."
@@ -156,8 +173,7 @@ export default async function TradingPage() {
       </div>
 
       <p className="text-xs text-muted-foreground text-center">
-        Sell-back / free-agent / trade UIs land as 5.9 → 5.10 → 5.11. This
-        page becomes the activity hub for the window.
+        Free-agent + trade UIs land as 5.10 → 5.11.
       </p>
     </div>
   );
