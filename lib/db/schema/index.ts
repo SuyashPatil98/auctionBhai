@@ -14,3 +14,4 @@ export * from "./personal_rating";
 export * from "./predictions";
 export * from "./matchday";
 export * from "./free_agent";
+export * from "./trades";

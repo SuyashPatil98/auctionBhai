@@ -17,6 +17,7 @@ import {
   profiles,
   realPlayers,
   rosters,
+  trades,
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
 import { requireLeagueMember } from "@/lib/util/require-league-member";
@@ -517,4 +518,466 @@ export async function resolveFreeAgentWindow(
   revalidatePath("/dashboard");
 
   return { resolved, awarded, windowKey };
+}
+
+// ----------------------------------------------------------------------------
+// Trades Lite (5.11)
+// ----------------------------------------------------------------------------
+
+const MAX_ACCEPTED_TRADES_PER_WINDOW = 2;
+
+async function rosterOwner(
+  leagueId: string,
+  realPlayerId: string,
+  profileId: string
+): Promise<{ acquiredAmount: number; position: string } | null> {
+  const [r] = await db
+    .select({
+      acquiredAmount: rosters.acquiredAmount,
+      position: realPlayers.position,
+    })
+    .from(rosters)
+    .innerJoin(realPlayers, eq(realPlayers.id, rosters.realPlayerId))
+    .where(
+      and(
+        eq(rosters.leagueId, leagueId),
+        eq(rosters.profileId, profileId),
+        eq(rosters.realPlayerId, realPlayerId),
+        isNull(rosters.droppedAt)
+      )
+    )
+    .limit(1);
+  if (!r) return null;
+  return { acquiredAmount: r.acquiredAmount ?? 0, position: r.position };
+}
+
+async function acceptedTradesThisWindow(
+  windowKey: string,
+  profileId: string
+): Promise<number> {
+  const rows = (await db.execute(sql`
+    select count(*)::int as n
+    from trades
+    where window_key = ${windowKey}
+      and status = 'accepted'
+      and (proposer_id = ${profileId} or recipient_id = ${profileId})
+  `)) as unknown as Array<{ n: number }>;
+  return rows[0]?.n ?? 0;
+}
+
+export type ProposeTradeInput = {
+  recipientId: string;
+  myPlayerId: string;
+  theirPlayerId: string;
+  creditFromProposer: number;
+  message?: string;
+};
+
+export async function proposeTrade(input: ProposeTradeInput) {
+  const proposerId = await requireProfileId();
+  await requireLeagueMember(proposerId);
+  const state = await loadWindowState();
+  assertTradingAllowed(state);
+
+  if (!input.recipientId || input.recipientId === proposerId) {
+    throw new Error("pick a different manager to trade with");
+  }
+  if (!input.myPlayerId || !input.theirPlayerId) {
+    throw new Error("both player ids required");
+  }
+  if (input.myPlayerId === input.theirPlayerId) {
+    throw new Error("players must be different");
+  }
+  if (
+    !Number.isInteger(input.creditFromProposer) ||
+    input.creditFromProposer < -5000 ||
+    input.creditFromProposer > 5000
+  ) {
+    throw new Error("credit transfer must be an integer in [-5000, 5000]");
+  }
+
+  const [league] = await db.select().from(leagues).limit(1);
+  if (!league) throw new Error("no league");
+
+  // Both players must currently be owned by their respective parties
+  const mine = await rosterOwner(league.id, input.myPlayerId, proposerId);
+  if (!mine) {
+    throw new Error("the player you're offering isn't on your active roster");
+  }
+  const theirs = await rosterOwner(
+    league.id,
+    input.theirPlayerId,
+    input.recipientId
+  );
+  if (!theirs) {
+    throw new Error("the player you're asking for isn't on the recipient's roster");
+  }
+
+  // Position-for-position only
+  if (mine.position !== theirs.position) {
+    throw new Error(
+      `position mismatch — you offered a ${mine.position} for a ${theirs.position}. Trades must be position-for-position.`
+    );
+  }
+
+  // Trade cap (proposer)
+  const windowKey = windowKeyFor(state.opensAt);
+  const proposerAccepted = await acceptedTradesThisWindow(
+    windowKey,
+    proposerId
+  );
+  if (proposerAccepted >= MAX_ACCEPTED_TRADES_PER_WINDOW) {
+    throw new Error(
+      `you've already had ${proposerAccepted} accepted trades this window (max ${MAX_ACCEPTED_TRADES_PER_WINDOW}).`
+    );
+  }
+
+  // Budget feasibility check at proposal time. Acceptance re-checks.
+  const [draft] = await db
+    .select({ id: drafts.id, budgetPerManager: drafts.budgetPerManager })
+    .from(drafts)
+    .where(eq(drafts.leagueId, league.id))
+    .limit(1);
+  if (!draft) throw new Error("no draft");
+  const budgets = await db
+    .select()
+    .from(managerBudgets)
+    .where(
+      and(
+        eq(managerBudgets.draftId, draft.id),
+        inArray(managerBudgets.profileId, [proposerId, input.recipientId])
+      )
+    );
+  const proposerBudget =
+    budgets.find((b) => b.profileId === proposerId)?.spent ?? 0;
+  const recipientBudget =
+    budgets.find((b) => b.profileId === input.recipientId)?.spent ?? 0;
+  const proposerDelta =
+    -mine.acquiredAmount + theirs.acquiredAmount + input.creditFromProposer;
+  const recipientDelta =
+    -theirs.acquiredAmount + mine.acquiredAmount - input.creditFromProposer;
+  if (proposerBudget + proposerDelta > draft.budgetPerManager) {
+    throw new Error(
+      `this trade would push your spent over the cap (need ${proposerBudget + proposerDelta}, cap ${draft.budgetPerManager}).`
+    );
+  }
+  if (recipientBudget + recipientDelta > draft.budgetPerManager) {
+    throw new Error(
+      `recipient can't afford this trade — their spent would hit ${recipientBudget + recipientDelta} (cap ${draft.budgetPerManager}).`
+    );
+  }
+
+  // Persist
+  await db.insert(trades).values({
+    windowKey,
+    proposerId,
+    recipientId: input.recipientId,
+    proposerPlayerId: input.myPlayerId,
+    recipientPlayerId: input.theirPlayerId,
+    creditFromProposer: input.creditFromProposer,
+    message: input.message?.trim() || null,
+  });
+
+  await db.insert(auditLog).values({
+    actorProfileId: proposerId,
+    action: "trading.propose",
+    entity: "trades",
+    entityId: null,
+    before: null,
+    after: { ...input, windowKey },
+  });
+
+  revalidatePath("/trading");
+}
+
+export async function withdrawTrade(tradeId: string) {
+  const me = await requireProfileId();
+  await requireLeagueMember(me);
+  if (!tradeId) throw new Error("tradeId required");
+
+  const [t] = await db
+    .select()
+    .from(trades)
+    .where(eq(trades.id, tradeId))
+    .limit(1);
+  if (!t) throw new Error("trade not found");
+  if (t.proposerId !== me) {
+    throw new Error("only the proposer can withdraw a trade");
+  }
+  if (t.status !== "pending") {
+    throw new Error(`trade is ${t.status} — nothing to withdraw`);
+  }
+
+  await db
+    .update(trades)
+    .set({ status: "withdrawn", decidedAt: new Date() })
+    .where(eq(trades.id, tradeId));
+
+  revalidatePath("/trading");
+}
+
+export async function rejectTrade(tradeId: string, reason?: string) {
+  const me = await requireProfileId();
+  await requireLeagueMember(me);
+  if (!tradeId) throw new Error("tradeId required");
+
+  const [t] = await db
+    .select()
+    .from(trades)
+    .where(eq(trades.id, tradeId))
+    .limit(1);
+  if (!t) throw new Error("trade not found");
+  if (t.recipientId !== me) {
+    throw new Error("only the recipient can reject");
+  }
+  if (t.status !== "pending") {
+    throw new Error(`trade is ${t.status} — nothing to reject`);
+  }
+
+  await db
+    .update(trades)
+    .set({
+      status: "rejected",
+      decidedAt: new Date(),
+      decisionMessage: reason?.trim() || null,
+    })
+    .where(eq(trades.id, tradeId));
+
+  revalidatePath("/trading");
+}
+
+export async function acceptTrade(tradeId: string) {
+  const me = await requireProfileId();
+  await requireLeagueMember(me);
+  const state = await loadWindowState();
+  assertTradingAllowed(state);
+  if (!tradeId) throw new Error("tradeId required");
+
+  const [league] = await db.select().from(leagues).limit(1);
+  if (!league) throw new Error("no league");
+
+  await db.transaction(async (tx) => {
+    const [t] = await tx
+      .select()
+      .from(trades)
+      .where(eq(trades.id, tradeId))
+      .limit(1);
+    if (!t) throw new Error("trade not found");
+    if (t.recipientId !== me) {
+      throw new Error("only the recipient can accept");
+    }
+    if (t.status !== "pending") {
+      throw new Error(`trade is ${t.status}`);
+    }
+    if (t.windowKey !== windowKeyFor(state.opensAt)) {
+      throw new Error("this trade is from a previous window");
+    }
+
+    // Cap check at acceptance time
+    for (const profile of [t.proposerId, t.recipientId]) {
+      const n = await acceptedTradesThisWindow(t.windowKey, profile);
+      if (n >= MAX_ACCEPTED_TRADES_PER_WINDOW) {
+        throw new Error(
+          `${profile === me ? "you have" : "proposer has"} already hit ${MAX_ACCEPTED_TRADES_PER_WINDOW} accepted trades this window`
+        );
+      }
+    }
+
+    // Both players must still be owned by their respective parties
+    const [mine] = await tx
+      .select({
+        acquiredAmount: rosters.acquiredAmount,
+        position: realPlayers.position,
+      })
+      .from(rosters)
+      .innerJoin(realPlayers, eq(realPlayers.id, rosters.realPlayerId))
+      .where(
+        and(
+          eq(rosters.leagueId, league.id),
+          eq(rosters.profileId, t.proposerId),
+          eq(rosters.realPlayerId, t.proposerPlayerId),
+          isNull(rosters.droppedAt)
+        )
+      )
+      .limit(1);
+    if (!mine) {
+      throw new Error("proposer no longer owns their player (sold or traded)");
+    }
+    const [theirs] = await tx
+      .select({
+        acquiredAmount: rosters.acquiredAmount,
+        position: realPlayers.position,
+      })
+      .from(rosters)
+      .innerJoin(realPlayers, eq(realPlayers.id, rosters.realPlayerId))
+      .where(
+        and(
+          eq(rosters.leagueId, league.id),
+          eq(rosters.profileId, t.recipientId),
+          eq(rosters.realPlayerId, t.recipientPlayerId),
+          isNull(rosters.droppedAt)
+        )
+      )
+      .limit(1);
+    if (!theirs) {
+      throw new Error("you no longer own your player (sold or traded)");
+    }
+    if (mine.position !== theirs.position) {
+      throw new Error("positions no longer match (shouldn't happen)");
+    }
+
+    // Drop both roster rows
+    await tx
+      .update(rosters)
+      .set({ droppedAt: new Date() })
+      .where(
+        and(
+          eq(rosters.leagueId, league.id),
+          eq(rosters.profileId, t.proposerId),
+          eq(rosters.realPlayerId, t.proposerPlayerId),
+          isNull(rosters.droppedAt)
+        )
+      );
+    await tx
+      .update(rosters)
+      .set({ droppedAt: new Date() })
+      .where(
+        and(
+          eq(rosters.leagueId, league.id),
+          eq(rosters.profileId, t.recipientId),
+          eq(rosters.realPlayerId, t.recipientPlayerId),
+          isNull(rosters.droppedAt)
+        )
+      );
+
+    // Insert both new roster rows (acquired_via='trade')
+    const mineAcq = mine.acquiredAmount ?? 0;
+    const theirsAcq = theirs.acquiredAmount ?? 0;
+    await tx.insert(rosters).values({
+      leagueId: league.id,
+      profileId: t.proposerId,
+      realPlayerId: t.recipientPlayerId,
+      acquiredVia: "trade",
+      acquiredAmount: theirsAcq,
+    });
+    await tx.insert(rosters).values({
+      leagueId: league.id,
+      profileId: t.recipientId,
+      realPlayerId: t.proposerPlayerId,
+      acquiredVia: "trade",
+      acquiredAmount: mineAcq,
+    });
+
+    // Budget deltas — spent changes by ( new_player_cost - old_player_cost + credit_paid )
+    const [draft] = await tx
+      .select({ id: drafts.id, budgetPerManager: drafts.budgetPerManager })
+      .from(drafts)
+      .where(eq(drafts.leagueId, league.id))
+      .limit(1);
+    if (!draft) throw new Error("no draft");
+
+    const proposerDelta = -mineAcq + theirsAcq + t.creditFromProposer;
+    const recipientDelta = -theirsAcq + mineAcq - t.creditFromProposer;
+
+    for (const [pid, delta] of [
+      [t.proposerId, proposerDelta] as const,
+      [t.recipientId, recipientDelta] as const,
+    ]) {
+      const [b] = await tx
+        .select()
+        .from(managerBudgets)
+        .where(
+          and(
+            eq(managerBudgets.draftId, draft.id),
+            eq(managerBudgets.profileId, pid)
+          )
+        )
+        .limit(1);
+      const prev = b?.spent ?? 0;
+      const next = prev + delta;
+      if (next > draft.budgetPerManager) {
+        throw new Error(
+          `accepting would push spent over cap for ${pid === me ? "you" : "the proposer"} (would be ${next}, cap ${draft.budgetPerManager})`
+        );
+      }
+      if (next < 0) {
+        throw new Error(
+          `accepting would make spent negative for ${pid === me ? "you" : "the proposer"} (would be ${next})`
+        );
+      }
+      await tx
+        .update(managerBudgets)
+        .set({ spent: next, updatedAt: new Date() })
+        .where(
+          and(
+            eq(managerBudgets.draftId, draft.id),
+            eq(managerBudgets.profileId, pid)
+          )
+        );
+    }
+
+    // Scrub traded-away players from each party's non-locked lineups
+    for (const [pid, awayPlayerId] of [
+      [t.proposerId, t.proposerPlayerId] as const,
+      [t.recipientId, t.recipientPlayerId] as const,
+    ]) {
+      const lns = await tx
+        .select()
+        .from(managerLineups)
+        .where(
+          and(
+            eq(managerLineups.profileId, pid),
+            isNull(managerLineups.lockedAt)
+          )
+        );
+      for (const ln of lns) {
+        const newStarters = ln.starterIds.filter((id) => id !== awayPlayerId);
+        const newBench = ln.benchIds.map((id) =>
+          id === awayPlayerId ? "" : id
+        );
+        const newCaptain =
+          ln.captainId === awayPlayerId
+            ? newStarters[0] ?? ""
+            : ln.captainId;
+        const newVice =
+          ln.viceId === awayPlayerId ? newStarters[1] ?? "" : ln.viceId;
+        if (
+          newStarters.length !== ln.starterIds.length ||
+          newBench.some((id, i) => id !== ln.benchIds[i]) ||
+          newCaptain !== ln.captainId ||
+          newVice !== ln.viceId
+        ) {
+          await tx
+            .update(managerLineups)
+            .set({
+              starterIds: newStarters,
+              benchIds: newBench,
+              captainId: newCaptain,
+              viceId: newVice,
+              updatedAt: new Date(),
+            })
+            .where(eq(managerLineups.id, ln.id));
+        }
+      }
+    }
+
+    // Mark trade accepted
+    await tx
+      .update(trades)
+      .set({ status: "accepted", decidedAt: new Date() })
+      .where(eq(trades.id, tradeId));
+
+    await tx.insert(auditLog).values({
+      actorProfileId: me,
+      action: "trading.accept",
+      entity: "trades",
+      entityId: tradeId,
+      before: { proposerDelta, recipientDelta },
+      after: { mineAcq, theirsAcq, credit: t.creditFromProposer },
+    });
+  });
+
+  revalidatePath("/trading");
+  revalidatePath("/team");
+  revalidatePath("/dashboard");
 }

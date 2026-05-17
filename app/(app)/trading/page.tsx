@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { and, asc, count, desc, eq, isNull, ne, notInArray, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { and, asc, count, desc, eq, inArray, isNull, ne, notInArray, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   countries,
@@ -8,12 +9,14 @@ import {
   fixtures,
   freeAgentBids,
   freeAgentResolutions,
+  leagueMembers,
   leagues,
   managerBudgets,
   playerPrices,
   profiles,
   realPlayers,
   rosters,
+  trades,
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfileTimezone } from "@/lib/util/current-profile";
@@ -34,6 +37,12 @@ import FreeAgentPanel, {
   type FreeAgent,
   type ResolutionRow,
 } from "./FreeAgentPanel";
+import TradePanel, {
+  type MemberSummary,
+  type MyPlayer,
+  type TheirPlayer,
+  type TradeRow,
+} from "./TradePanel";
 
 export const dynamic = "force-dynamic";
 
@@ -256,6 +265,134 @@ export default async function TradingPage() {
   const remainingBudget =
     (draftFull?.budgetPerManager ?? 500) - (myBudget?.spent ?? 0);
 
+  // ---- Trades panel data -----------------------------------------------
+  const memberRows = await db
+    .select({
+      profileId: leagueMembers.profileId,
+      displayName: profiles.displayName,
+      teamEmoji: profiles.teamEmoji,
+    })
+    .from(leagueMembers)
+    .innerJoin(profiles, eq(profiles.id, leagueMembers.profileId))
+    .where(eq(leagueMembers.leagueId, league.id))
+    .orderBy(asc(leagueMembers.nominationOrder));
+  const memberSummaries: MemberSummary[] = memberRows;
+
+  // My active players (for "offering" dropdown)
+  const myPlayers: MyPlayer[] = myRoster.map((p) => ({
+    realPlayerId: p.realPlayerId,
+    displayName: p.displayName,
+    position: p.position as Position,
+    acquiredAmount: p.acquiredAmount,
+  }));
+
+  // Other managers' active players (for "asking for" dropdown)
+  const otherIds = memberRows
+    .map((m) => m.profileId)
+    .filter((id) => id !== user.id);
+  const otherPlayerRows = otherIds.length
+    ? await db
+        .select({
+          realPlayerId: rosters.realPlayerId,
+          ownerProfileId: rosters.profileId,
+          displayName: realPlayers.displayName,
+          position: realPlayers.position,
+          acquiredAmount: rosters.acquiredAmount,
+        })
+        .from(rosters)
+        .innerJoin(realPlayers, eq(realPlayers.id, rosters.realPlayerId))
+        .where(
+          and(
+            eq(rosters.leagueId, league.id),
+            inArray(rosters.profileId, otherIds),
+            isNull(rosters.droppedAt)
+          )
+        )
+        .orderBy(asc(rosters.profileId), asc(realPlayers.displayName))
+    : [];
+  const theirPlayers: TheirPlayer[] = otherPlayerRows.map((r) => ({
+    realPlayerId: r.realPlayerId,
+    ownerProfileId: r.ownerProfileId,
+    displayName: r.displayName,
+    position: r.position as Position,
+    acquiredAmount: r.acquiredAmount,
+  }));
+
+  // Trade rows — incoming (to me, pending), outgoing (from me, pending),
+  // recent decided (any status != pending in this window).
+  const proposer = alias(profiles, "proposer");
+  const recipient = alias(profiles, "recipient");
+  const proposerPlayer = alias(realPlayers, "proposerPlayer");
+  const recipientPlayer = alias(realPlayers, "recipientPlayer");
+
+  const tradeRowsRaw = await db
+    .select({
+      id: trades.id,
+      proposerId: trades.proposerId,
+      recipientId: trades.recipientId,
+      proposerName: proposer.displayName,
+      recipientName: recipient.displayName,
+      proposerPlayerName: proposerPlayer.displayName,
+      proposerPlayerPosition: proposerPlayer.position,
+      recipientPlayerName: recipientPlayer.displayName,
+      recipientPlayerPosition: recipientPlayer.position,
+      creditFromProposer: trades.creditFromProposer,
+      status: trades.status,
+      message: trades.message,
+      proposedAt: trades.proposedAt,
+    })
+    .from(trades)
+    .innerJoin(proposer, eq(proposer.id, trades.proposerId))
+    .innerJoin(recipient, eq(recipient.id, trades.recipientId))
+    .innerJoin(proposerPlayer, eq(proposerPlayer.id, trades.proposerPlayerId))
+    .innerJoin(
+      recipientPlayer,
+      eq(recipientPlayer.id, trades.recipientPlayerId)
+    )
+    .where(eq(trades.windowKey, windowKey))
+    .orderBy(desc(trades.proposedAt));
+
+  const allTradeRows: TradeRow[] = tradeRowsRaw.map((t) => ({
+    id: t.id,
+    proposerId: t.proposerId,
+    recipientId: t.recipientId,
+    proposerName: t.proposerName,
+    recipientName: t.recipientName,
+    proposerPlayerName: t.proposerPlayerName,
+    proposerPlayerPosition: t.proposerPlayerPosition as
+      | "GK"
+      | "DEF"
+      | "MID"
+      | "FWD",
+    recipientPlayerName: t.recipientPlayerName,
+    recipientPlayerPosition: t.recipientPlayerPosition as
+      | "GK"
+      | "DEF"
+      | "MID"
+      | "FWD",
+    creditFromProposer: t.creditFromProposer,
+    status: t.status as TradeRow["status"],
+    message: t.message,
+    proposedAt: t.proposedAt.toISOString(),
+  }));
+
+  const incomingTrades = allTradeRows.filter(
+    (t) => t.recipientId === user.id && t.status === "pending"
+  );
+  const outgoingTrades = allTradeRows.filter(
+    (t) => t.proposerId === user.id && t.status === "pending"
+  );
+  const recentDecided = allTradeRows
+    .filter((t) => t.status !== "pending")
+    .slice(0, 10);
+
+  // Accepted this window count (involving me on either side)
+  const myAcceptedCount = allTradeRows.filter(
+    (t) =>
+      t.status === "accepted" &&
+      (t.proposerId === user.id || t.recipientId === user.id)
+  ).length;
+
   const myComposition = composition(
     myRoster.map((p) => ({ position: p.position as Position }))
   );
@@ -313,17 +450,17 @@ export default async function TradingPage() {
         windowKey={windowKey}
       />
 
-      <div className="grid gap-4 sm:grid-cols-1">
-        <PlaceholderCard
-          title="Trade with manager"
-          subtitle="Player-for-player + credit balance. Mutual accept. 2 trades per window."
-          available={windowState.isOpen}
-        />
-      </div>
-
-      <p className="text-xs text-muted-foreground text-center">
-        Trade UI lands as 5.11.
-      </p>
+      <TradePanel
+        available={windowState.isOpen && !windowState.knockoutCutoffPassed}
+        members={memberSummaries}
+        myProfileId={user.id}
+        myPlayers={myPlayers}
+        theirPlayers={theirPlayers}
+        incoming={incomingTrades}
+        outgoing={outgoingTrades}
+        recentDecided={recentDecided}
+        acceptedThisWindow={myAcceptedCount}
+      />
     </div>
   );
 }
@@ -429,28 +566,3 @@ function CompositionGrid({
   );
 }
 
-function PlaceholderCard({
-  title,
-  subtitle,
-  available,
-}: {
-  title: string;
-  subtitle: string;
-  available: boolean;
-}) {
-  return (
-    <div
-      className={`rounded-xl border p-4 space-y-2 ${
-        available
-          ? "border-emerald-500/30 bg-emerald-500/5"
-          : "border-dashed border-border bg-card/50"
-      }`}
-    >
-      <h3 className="text-sm font-semibold">{title}</h3>
-      <p className="text-xs text-muted-foreground">{subtitle}</p>
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-        {available ? "Coming soon · UI lands in next phase" : "Window closed"}
-      </p>
-    </div>
-  );
-}
