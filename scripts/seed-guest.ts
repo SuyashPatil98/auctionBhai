@@ -22,7 +22,7 @@ async function main() {
   const { eq } = await import("drizzle-orm");
   const { db } = await import("../lib/db");
   const { profiles, leagueMembers, leagues } = await import("../lib/db/schema");
-  const { GUEST_EMAIL, GUEST_PASSWORD } = await import("../lib/util/guest");
+  const { GUEST_EMAIL, GUEST_PASSWORD } = await import("../lib/util/guest-constants");
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

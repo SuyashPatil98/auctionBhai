@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { GUEST_EMAIL, GUEST_PASSWORD } from "./guest-constants";
 
 /**
  * Shared "view as guest" account.
@@ -13,13 +14,11 @@ import { createClient } from "@/lib/supabase/server";
  * can SEE everything (dashboard, draft, fixtures, leaderboard, trades)
  * but can't bid, save lineups, vote MOTM, trade, sell, edit profile.
  *
- * Credentials are PUBLIC by design — they're not a secret. The seed
- * script creates the user with these exact values; the login action
- * signs in with them.
+ * Constants live in ./guest-constants so they're importable from
+ * non-Next.js scripts (the seeder).
  */
 
-export const GUEST_EMAIL = "guest@auction-bhai.demo";
-export const GUEST_PASSWORD = "guest-view-only-9d3f81";
+export { GUEST_EMAIL, GUEST_PASSWORD };
 
 export async function isCurrentUserGuest(): Promise<boolean> {
   const supabase = await createClient();
