@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { signInWithPassword, signUpWithPassword } from "./actions";
+import { signInAsGuest, signInWithPassword, signUpWithPassword } from "./actions";
 
 export const metadata = {
   title: "Sign in · FiFantasy",
@@ -94,6 +94,28 @@ export default async function LoginPage({
 
       {error && (
         <p className="text-sm text-destructive text-center">{error}</p>
+      )}
+
+      {!isSignup && (
+        <>
+          <div className="flex items-center gap-3 text-[10px] uppercase tracking-widest text-muted-foreground">
+            <span className="flex-1 h-px bg-border" />
+            <span>or</span>
+            <span className="flex-1 h-px bg-border" />
+          </div>
+
+          <form action={signInAsGuest}>
+            <button
+              type="submit"
+              className="w-full rounded-md border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-2 text-sm font-medium text-emerald-700 dark:text-emerald-400 transition-all hover:scale-[1.02]"
+            >
+              👁 View as Guest
+            </button>
+            <p className="text-[11px] text-muted-foreground text-center mt-2">
+              Read-only access — explore the league without an invite.
+            </p>
+          </form>
+        </>
       )}
 
       <p className="text-xs text-muted-foreground text-center">

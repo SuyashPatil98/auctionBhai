@@ -31,7 +31,8 @@
     "test:rating": "tsx scripts/test-personal-rating.ts",
     "test:scoring": "tsx scripts/test-scoring.ts",
     "seed:test-rosters": "tsx scripts/seed-test-rosters.ts",
-    "set:commissioner": "tsx scripts/set-commissioner.ts"
+    "set:commissioner": "tsx scripts/set-commissioner.ts",
+    "seed:guest": "tsx scripts/seed-guest.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

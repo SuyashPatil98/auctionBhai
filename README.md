@@ -3,8 +3,7 @@
 > Solo end-to-end design, build, deploy and ops of a fantasy football data system for the FIFA World Cup 2026. **One engineer, every layer** — multi-source ETL → 4-layer ML rating model → 10k Monte Carlo bracket sim → realtime scoring engine → Next.js app → two live deployments.
 
 **Live**
-- Private friends-only league: [auction-bhai.vercel.app](https://auction-bhai.vercel.app)
-- Public demo (sign in as any of 4 personas): [lineup-lab.vercel.app](https://lineup-lab.vercel.app)
+- App: [auction-bhai.vercel.app](https://auction-bhai.vercel.app) — click **"View as Guest"** on the sign-in screen to explore the running league read-only. No account needed.
 - Source: this repo
 
 ---
@@ -102,10 +101,12 @@ Scoring is a pure function: `(manager_lineups, player_match_stats, fixtures, mot
 
 `lib/db/sql/008_auction_schema.sql` · `lib/db/sql/022_trades.sql`
 
-### 5. Two deployments from one branch (env-driven mode)
-Considered maintaining a separate `showcase` branch; rejected because branch divergence compounds over time. Single `main` branch, two Vercel projects, environment variable `NEXT_PUBLIC_SITE_MODE=private|demo` toggles behaviour: demo mode shows a top banner, replaces password login with a one-click persona picker, points at a different Supabase project. Zero merge cost per feature.
+### 5. Read-only guest access without a separate deployment
+One Supabase user (`guest@auction-bhai.demo`) lives outside `league_members`. The "View as Guest" button on `/login` signs anyone in as that user. Because every mutation server action gates on `requireLeagueMember()`, the guest can browse the entire app (draft, lineups, fixtures, leaderboard, trade history) in real time — but can't bid, edit, or trade. Read-only by construction, not by client-side checks.
 
-`lib/util/site-mode.ts` · `lib/supabase/middleware.ts`
+This avoided a second Vercel project + a parallel Supabase project + a seed-and-reset workflow. One environment, one code path, one extra database row.
+
+`lib/util/guest.ts` · `app/(auth)/login/actions.ts`
 
 ---
 

@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { GUEST_EMAIL, GUEST_PASSWORD } from "@/lib/util/guest";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD = 8;
@@ -24,6 +25,27 @@ function backToSignIn(error: string): never {
 
 function backToSignUp(error: string): never {
   redirect(`/login?mode=signup&error=${encodeURIComponent(error)}`);
+}
+
+/**
+ * One-click sign-in as the shared "Guest viewer" account. Anyone with
+ * the URL can use this. The guest user is NOT in league_members, so
+ * the requireLeagueMember() gate on every mutation makes them
+ * read-only by construction — they can view everything but mutate
+ * nothing.
+ */
+export async function signInAsGuest() {
+  const supabase = await createClient();
+  const { error } = await supabase.auth.signInWithPassword({
+    email: GUEST_EMAIL,
+    password: GUEST_PASSWORD,
+  });
+  if (error) {
+    backToSignIn(
+      `Guest sign-in unavailable (${error.message}). The guest user may not be seeded yet.`
+    );
+  }
+  redirect("/dashboard");
 }
 
 export async function signInWithPassword(formData: FormData) {
