@@ -19,6 +19,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { Kickoff } from "@/components/Kickoff";
 import { getCurrentProfileTimezone } from "@/lib/util/current-profile";
+import { computeWindowState } from "@/lib/trading/window";
 import StandingsPanel, {
   type ManagerStanding,
 } from "./StandingsPanel";
@@ -171,13 +172,25 @@ export default async function DashboardPage() {
     cumulativePoints: cumulativeByProfile.get(m.id) ?? 0,
   }));
 
+  // Trading window state — for the dashboard tile
+  const [knockoutFx] = await db
+    .select({ kickoffAt: fixtures.kickoffAt })
+    .from(fixtures)
+    .where(eq(fixtures.stage, "r32"))
+    .orderBy(asc(fixtures.kickoffAt))
+    .limit(1);
+  const windowState = computeWindowState(
+    Date.now(),
+    knockoutFx?.kickoffAt ? knockoutFx.kickoffAt.getTime() : null
+  );
+
   const daysToKickoff = Math.max(
     0,
     Math.round((WC_KICKOFF.getTime() - Date.now()) / (24 * 60 * 60 * 1000))
   );
   const draftStatus = draft?.status ?? "no draft";
-  const rosterSize = draft?.rosterSize ?? 20;
-  const totalBudget = draft?.budgetPerManager ?? 200;
+  const rosterSize = draft?.rosterSize ?? 16;
+  const totalBudget = draft?.budgetPerManager ?? 500;
 
   const spent = mySquad.reduce((a, p) => a + (p.acquiredAmount ?? 0), 0);
   const remaining = totalBudget - spent;
@@ -229,6 +242,37 @@ export default async function DashboardPage() {
           myProfileId={user.id}
           hasAnyScores={allScores.length > 0}
         />
+      )}
+
+      {isMember && (
+        <Link
+          href="/trading"
+          className={`block rounded-xl border p-4 transition hover:bg-card ${
+            windowState.knockoutCutoffPassed
+              ? "border-destructive/30 bg-destructive/5"
+              : windowState.isOpen
+              ? "border-emerald-500/40 bg-emerald-500/5"
+              : "border-border bg-card"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">
+                Trading window
+              </p>
+              <p className="text-sm font-semibold mt-1">
+                {windowState.knockoutCutoffPassed
+                  ? "🔒 Frozen (knockouts started)"
+                  : windowState.isOpen
+                  ? "🟢 Open — sell, bid, trade"
+                  : "Closed — opens Tuesday 00:00 UTC"}
+              </p>
+            </div>
+            {!windowState.isOpen && !windowState.knockoutCutoffPassed && (
+              <DashboardCountdown msAway={windowState.opensAt - Date.now()} />
+            )}
+          </div>
+        </Link>
       )}
 
       <PrimaryCta draft={draft} isMember={!!isMember} />
@@ -512,4 +556,17 @@ function PrimaryCta({
     );
   }
   return null;
+}
+
+function DashboardCountdown({ msAway }: { msAway: number }) {
+  const total = Math.max(0, msAway);
+  const days = Math.floor(total / (24 * 60 * 60 * 1000));
+  const hours = Math.floor((total % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+  const mins = Math.floor((total % (60 * 60 * 1000)) / (60 * 1000));
+  return (
+    <span className="text-xs rounded-md bg-muted px-2.5 py-1 tabular-nums">
+      {days > 0 && `${days}d `}
+      {hours}h {mins}m
+    </span>
+  );
 }
