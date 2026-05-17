@@ -1,14 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["bom1"],
-
-  "_demo_only_uncomment_to_enable": {
-    "comment": "Vercel cron config for LineUp Lab nightly demo reset. Vercel ignores keys starting with '_'. To enable: paste the contents of this object into the top level of vercel.json under a 'crons' key, set DEMO_RESET_TOKEN in the LineUp Lab Vercel project env vars, and redeploy.",
-    "crons": [
-      {
-        "path": "/api/demo-reset?token=$DEMO_RESET_TOKEN",
-        "schedule": "0 4 * * *"
-      }
-    ]
-  }
+  "regions": ["bom1"]
 }
