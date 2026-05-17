@@ -3,7 +3,9 @@ import { NextResponse, type NextRequest } from "next/server";
 
 type CookieToSet = { name: string; value: string; options?: CookieOptions };
 
-const PUBLIC_PATHS = ["/", "/login", "/auth"];
+const PUBLIC_PATHS = ["/", "/login", "/auth", "/welcome", "/about"];
+
+const IS_DEMO = process.env.NEXT_PUBLIC_SITE_MODE === "demo";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -41,11 +43,20 @@ export async function updateSession(request: NextRequest) {
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
-    url.pathname = "/login";
+    // In demo mode, route unauthenticated visitors to the persona picker
+    // instead of the password form.
+    url.pathname = IS_DEMO ? "/welcome" : "/login";
     return NextResponse.redirect(url);
   }
 
   if (user && (pathname === "/login" || pathname.startsWith("/login/"))) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/dashboard";
+    return NextResponse.redirect(url);
+  }
+
+  // Demo mode: already-signed-in users bouncing to /welcome go to /dashboard
+  if (user && IS_DEMO && pathname === "/welcome") {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);
