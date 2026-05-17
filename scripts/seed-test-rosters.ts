@@ -19,7 +19,7 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 config({ path: ".env" });
 
-const QUOTA = { GK: 2, DEF: 6, MID: 7, FWD: 5 } as const;
+const QUOTA = { GK: 2, DEF: 5, MID: 5, FWD: 4 } as const;
 
 async function main() {
   const reset = process.argv.includes("--reset");

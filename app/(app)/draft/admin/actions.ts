@@ -52,6 +52,99 @@ async function logAdmin(
 // pauseDraft / resumeDraft
 // ============================================================================
 
+// ============================================================================
+// updateDraftSettings — budget / roster size / position quotas
+// ============================================================================
+//
+// Only allowed when the draft is 'scheduled' (pre-auction). Once it's
+// live, paused, or complete, settings are frozen because changes would
+// orphan committed budgets / roster picks.
+
+export async function updateDraftSettings(formData: FormData) {
+  const actor = await requireAuthedProfile();
+  const draftId = String(formData.get("draft_id") ?? "");
+  if (!draftId) throw new Error("draft_id required");
+
+  const budget = Number.parseInt(String(formData.get("budget") ?? ""), 10);
+  const rosterSize = Number.parseInt(
+    String(formData.get("roster_size") ?? ""),
+    10
+  );
+  const gk = Number.parseInt(String(formData.get("req_gk") ?? ""), 10);
+  const def = Number.parseInt(String(formData.get("req_def") ?? ""), 10);
+  const mid = Number.parseInt(String(formData.get("req_mid") ?? ""), 10);
+  const fwd = Number.parseInt(String(formData.get("req_fwd") ?? ""), 10);
+
+  if (!Number.isFinite(budget) || budget < 50 || budget > 10000) {
+    throw new Error("budget must be between 50 and 10000");
+  }
+  if (!Number.isFinite(rosterSize) || rosterSize < 11 || rosterSize > 30) {
+    throw new Error("roster size must be between 11 and 30");
+  }
+  for (const [name, n] of [
+    ["GK", gk],
+    ["DEF", def],
+    ["MID", mid],
+    ["FWD", fwd],
+  ] as const) {
+    if (!Number.isFinite(n) || n < 0 || n > 20) {
+      throw new Error(`${name} count must be 0–20`);
+    }
+  }
+  if (gk + def + mid + fwd !== rosterSize) {
+    throw new Error(
+      `position counts (${gk}+${def}+${mid}+${fwd}=${gk + def + mid + fwd}) must sum to roster size (${rosterSize})`
+    );
+  }
+  // Lineup-validity sanity: must be able to form a legal XI in some
+  // formation. Smallest formation needs 1 GK + 3 DEF + 3 MID + 1 FWD.
+  if (gk < 1 || def < 3 || mid < 3 || fwd < 1) {
+    throw new Error(
+      "need at least 1 GK / 3 DEF / 3 MID / 1 FWD to set any legal lineup"
+    );
+  }
+
+  const [d] = await db.select().from(drafts).where(eq(drafts.id, draftId)).limit(1);
+  if (!d) throw new Error("draft not found");
+  if (d.status !== "scheduled") {
+    throw new Error(
+      `draft is ${d.status} — settings can only be edited pre-auction`
+    );
+  }
+
+  const before = {
+    budget: d.budgetPerManager,
+    rosterSize: d.rosterSize,
+    rosterRequirements: d.rosterRequirements,
+  };
+  const after = {
+    budget,
+    rosterSize,
+    rosterRequirements: { GK: gk, DEF: def, MID: mid, FWD: fwd },
+  };
+
+  await db
+    .update(drafts)
+    .set({
+      budgetPerManager: budget,
+      rosterSize,
+      rosterRequirements: { GK: gk, DEF: def, MID: mid, FWD: fwd },
+    })
+    .where(eq(drafts.id, draftId));
+
+  await logAdmin(
+    actor,
+    "draft.update_settings",
+    "drafts",
+    draftId,
+    before,
+    after
+  );
+
+  revalidatePath("/draft");
+  revalidatePath("/draft/admin");
+}
+
 export async function pauseDraft(formData: FormData) {
   const actor = await requireAuthedProfile();
   const draftId = String(formData.get("draft_id") ?? "");

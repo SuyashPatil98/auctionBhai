@@ -36,7 +36,17 @@ export type LineupRules = {
   benchSize: number;
 };
 
-export const WC_RULES: LineupRules = { benchSize: 4 };
+/**
+ * Bench size derives from squad size: starters are always 11, bench fills
+ * the rest. For the WC's new 16-player squad → 5 bench. Old 20-player
+ * format had 4 bench. WC_RULES is just the default; pages compute the
+ * actual rule from the draft's rosterSize.
+ */
+export const WC_RULES: LineupRules = { benchSize: 5 };
+
+export function benchSizeForRoster(rosterSize: number): number {
+  return Math.max(0, rosterSize - 11);
+}
 
 export type ValidationError =
   | { code: "starter_count"; expected: number; got: number }

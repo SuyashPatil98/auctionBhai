@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
+  drafts,
   fixtures,
   leagueMembers,
   leagues,
@@ -20,9 +21,9 @@ import {
   type FormationKey,
 } from "@/lib/lineup/formations";
 import {
+  benchSizeForRoster,
   isValid,
   validateLineup,
-  WC_RULES,
   type LineupDraft,
   type RosterPlayer,
 } from "@/lib/lineup/validate";
@@ -84,6 +85,14 @@ export async function saveLineup(input: SaveLineupInput) {
   const [league] = await db.select().from(leagues).limit(1);
   if (!league) throw new Error("league not set up yet");
 
+  // Bench size derives from the draft's configured roster size.
+  const [draftRow] = await db
+    .select({ rosterSize: drafts.rosterSize })
+    .from(drafts)
+    .where(eq(drafts.leagueId, league.id))
+    .limit(1);
+  const benchSize = benchSizeForRoster(draftRow?.rosterSize ?? 16);
+
   const rosterRows = await db
     .select({
       realPlayerId: rosters.realPlayerId,
@@ -112,7 +121,7 @@ export async function saveLineup(input: SaveLineupInput) {
     captainId: input.captainId,
     viceId: input.viceId,
   };
-  const errors = validateLineup(draft, roster, WC_RULES);
+  const errors = validateLineup(draft, roster, { benchSize });
   if (!isValid(errors)) {
     throw new Error(
       "lineup invalid: " +

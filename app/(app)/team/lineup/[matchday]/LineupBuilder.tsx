@@ -12,7 +12,6 @@ import {
   explainError,
   isValid,
   validateLineup,
-  WC_RULES,
   type LineupDraft,
   type RosterPlayer,
 } from "@/lib/lineup/validate";
@@ -42,6 +41,8 @@ export type LineupBuilderProps = {
   isLocked: boolean;
   hasPriorLineup: boolean;
   tz: string | null;
+  /** Number of bench slots — derives from draft.rosterSize − 11. */
+  benchSize: number;
 };
 
 // ----------------------------------------------------------------------------
@@ -70,9 +71,10 @@ export default function LineupBuilder(props: LineupBuilderProps) {
       })),
     [props.roster]
   );
+  const rules = useMemo(() => ({ benchSize: props.benchSize }), [props.benchSize]);
   const errors = useMemo(
-    () => validateLineup(draft, rosterAsRosterPlayer, WC_RULES),
-    [draft, rosterAsRosterPlayer]
+    () => validateLineup(draft, rosterAsRosterPlayer, rules),
+    [draft, rosterAsRosterPlayer, rules]
   );
 
   // ---- Roster index for quick lookup
@@ -347,7 +349,7 @@ export default function LineupBuilder(props: LineupBuilderProps) {
           Bench · subbed in (in order) when a starter at the same position
           plays 0 minutes
         </p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
           {draft.bench.map((id, idx) => (
             <BenchSlot
               key={idx}

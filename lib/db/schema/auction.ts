@@ -56,12 +56,12 @@ export const drafts = pgTable("drafts", {
 
   // Auction parameters — kept on the draft itself so rules can't shift
   // mid-event by editing the league row.
-  budgetPerManager: integer("budget_per_manager").notNull().default(200),
-  rosterSize: smallint("roster_size").notNull().default(20),
+  budgetPerManager: integer("budget_per_manager").notNull().default(500),
+  rosterSize: smallint("roster_size").notNull().default(16),
   rosterRequirements: jsonb("roster_requirements")
     .$type<Record<string, number>>()
     .notNull()
-    .default({ GK: 2, DEF: 6, MID: 7, FWD: 5 }),
+    .default({ GK: 2, DEF: 5, MID: 5, FWD: 4 }),
   minBid: smallint("min_bid").notNull().default(1),
   incrementRules: jsonb("increment_rules")
     .$type<Array<{ threshold: number; inc: number }>>()

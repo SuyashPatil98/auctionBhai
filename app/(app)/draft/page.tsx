@@ -35,6 +35,8 @@ export const metadata = { title: "Draft · FiFantasy" };
 
 type SearchParams = Promise<{
   q?: string;
+  pos?: string;
+  country?: string;
   bidError?: string;
 }>;
 
@@ -43,7 +45,7 @@ export default async function DraftPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const { q, bidError } = await searchParams;
+  const { q, pos, country, bidError } = await searchParams;
 
   const supabase = await createClient();
   const {
@@ -242,6 +244,10 @@ export default async function DraftPage({
   const excludedIds = [...ownedIds, ...onLotIds].map((r) => r.id);
   const playerFilter = q?.trim() ? `%${q.trim()}%` : null;
 
+  const positionFilter =
+    pos && ["GK", "DEF", "MID", "FWD"].includes(pos) ? pos : null;
+  const countryFilter = country?.trim() ? country.trim() : null;
+
   const availablePlayersRaw = await db
     .select({
       id: realPlayers.id,
@@ -262,11 +268,22 @@ export default async function DraftPage({
           : undefined,
         playerFilter
           ? sql`lower(${realPlayers.fullName}) like lower(${playerFilter})`
-          : undefined
+          : undefined,
+        positionFilter
+          ? sql`${realPlayers.position} = ${positionFilter}`
+          : undefined,
+        countryFilter ? eq(countries.name, countryFilter) : undefined
       )
     )
     .orderBy(desc(playerPrices.price))
     .limit(150);
+
+  // List of all WC country names (for the country dropdown)
+  const countryRows = await db
+    .select({ name: countries.name })
+    .from(countries)
+    .orderBy(asc(countries.name));
+  const allCountries = countryRows.map((c) => c.name);
 
   const availablePlayers: AvailablePlayer[] = availablePlayersRaw.map((p) => ({
     id: p.id,
@@ -305,6 +322,9 @@ export default async function DraftPage({
     myProxyMax,
     passedProfileIds,
     searchQuery: q ?? "",
+    positionFilter: positionFilter ?? "",
+    countryFilter: countryFilter ?? "",
+    allCountries,
     bidError: bidError ?? null,
   };
 

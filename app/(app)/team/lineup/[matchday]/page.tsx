@@ -4,6 +4,7 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   countries,
+  drafts,
   fixtures,
   leagues,
   managerLineups,
@@ -22,7 +23,7 @@ import { computeLockTime, isLocked } from "@/lib/lineup/lock";
 import { stampLineupLocks } from "../actions";
 import LineupBuilder, { type RosterPlayerView } from "./LineupBuilder";
 import type { Position } from "@/lib/scoring/points";
-import type { LineupDraft } from "@/lib/lineup/validate";
+import { benchSizeForRoster, type LineupDraft } from "@/lib/lineup/validate";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,16 @@ export default async function LineupPage({
 
   const tz = await getCurrentProfileTimezone();
   const [league] = await db.select().from(leagues).limit(1);
+
+  // Squad size + bench size come from the draft row (configurable)
+  const [draft] = league
+    ? await db
+        .select({ rosterSize: drafts.rosterSize })
+        .from(drafts)
+        .where(eq(drafts.leagueId, league.id))
+        .limit(1)
+    : [];
+  const benchSize = benchSizeForRoster(draft?.rosterSize ?? 16);
 
   // Roster (active players the user owns in the current league)
   const rosterRows = league
@@ -129,7 +140,7 @@ export default async function LineupPage({
         ? (existing.formation as FormationKey)
         : DEFAULT_FORMATION,
     starters: existing?.starterIds ?? [],
-    bench: existing?.benchIds ?? ["", "", "", ""],
+    bench: existing?.benchIds ?? Array.from({ length: benchSize }, () => ""),
     captainId: existing?.captainId ?? "",
     viceId: existing?.viceId ?? "",
   };
@@ -191,6 +202,7 @@ export default async function LineupPage({
         isLocked={locked}
         hasPriorLineup={!!prior}
         tz={tz}
+        benchSize={benchSize}
       />
     </div>
   );

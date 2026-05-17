@@ -98,6 +98,9 @@ export type AuctionRoomProps = {
   myProxyMax: number | null;
   passedProfileIds: string[];
   searchQuery: string;
+  positionFilter: string;
+  countryFilter: string;
+  allCountries: string[];
   bidError: string | null;
 };
 
@@ -504,6 +507,9 @@ export default function AuctionRoom(props: AuctionRoomProps) {
             myMax={props.myMaxBidNow}
             availablePlayers={props.availablePlayers}
             searchQuery={props.searchQuery}
+            positionFilter={props.positionFilter}
+            countryFilter={props.countryFilter}
+            allCountries={props.allCountries}
           />
         )}
 
@@ -992,12 +998,18 @@ function NominateSection({
   myMax,
   availablePlayers,
   searchQuery,
+  positionFilter,
+  countryFilter,
+  allCountries,
 }: {
   draftId: string;
   minBid: number;
   myMax: number;
   availablePlayers: AvailablePlayer[];
   searchQuery: string;
+  positionFilter: string;
+  countryFilter: string;
+  allCountries: string[];
 }) {
   return (
     <section className="space-y-3">
@@ -1049,10 +1061,13 @@ function NominateSection({
         </div>
       </form>
 
-      <form className="flex items-end gap-2 text-sm" method="get">
-        <label className="flex flex-col flex-1">
+      <form
+        className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto] sm:items-end text-sm"
+        method="get"
+      >
+        <label className="flex flex-col">
           <span className="text-xs text-muted-foreground mb-1">
-            Search players (typing applies on submit)
+            Search name
           </span>
           <input
             type="text"
@@ -1062,11 +1077,40 @@ function NominateSection({
             className="rounded-md border border-input bg-background px-3 py-1.5"
           />
         </label>
+        <label className="flex flex-col">
+          <span className="text-xs text-muted-foreground mb-1">Position</span>
+          <select
+            name="pos"
+            defaultValue={positionFilter}
+            className="rounded-md border border-input bg-background px-2 py-1.5"
+          >
+            <option value="">All</option>
+            <option value="GK">GK</option>
+            <option value="DEF">DEF</option>
+            <option value="MID">MID</option>
+            <option value="FWD">FWD</option>
+          </select>
+        </label>
+        <label className="flex flex-col">
+          <span className="text-xs text-muted-foreground mb-1">Country</span>
+          <select
+            name="country"
+            defaultValue={countryFilter}
+            className="rounded-md border border-input bg-background px-2 py-1.5 max-w-[10rem]"
+          >
+            <option value="">All</option>
+            {allCountries.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           type="submit"
           className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted transition"
         >
-          Filter
+          Apply
         </button>
       </form>
     </section>

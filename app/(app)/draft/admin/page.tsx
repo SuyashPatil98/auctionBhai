@@ -19,6 +19,7 @@ import {
   removeMember,
   resetDraft,
   resumeDraft,
+  updateDraftSettings,
   voidLot,
 } from "./actions";
 import Link from "next/link";
@@ -132,6 +133,97 @@ export default async function DraftAdminPage() {
           friends, that&apos;s the dispute-resolution mechanism.
         </p>
       </div>
+
+      <Section title="Draft settings">
+        {d.status === "scheduled" ? (
+          <form
+            action={updateDraftSettings}
+            className="grid gap-3 sm:grid-cols-2"
+          >
+            <input type="hidden" name="draft_id" value={d.id} />
+            <label className="flex flex-col">
+              <span className="text-xs text-muted-foreground mb-1">
+                Budget per manager (credits)
+              </span>
+              <input
+                type="number"
+                name="budget"
+                min={50}
+                max={10000}
+                defaultValue={d.budgetPerManager}
+                required
+                className="rounded-md border border-input bg-background px-3 py-1.5 tabular-nums"
+              />
+            </label>
+            <label className="flex flex-col">
+              <span className="text-xs text-muted-foreground mb-1">
+                Roster size (players)
+              </span>
+              <input
+                type="number"
+                name="roster_size"
+                min={11}
+                max={30}
+                defaultValue={d.rosterSize}
+                required
+                className="rounded-md border border-input bg-background px-3 py-1.5 tabular-nums"
+              />
+            </label>
+            <fieldset className="sm:col-span-2 border border-border rounded-md p-3">
+              <legend className="text-xs text-muted-foreground px-1">
+                Position quotas (must sum to roster size)
+              </legend>
+              <div className="grid grid-cols-4 gap-2">
+                {(["gk", "def", "mid", "fwd"] as const).map((k) => {
+                  const reqs = d.rosterRequirements as Record<string, number>;
+                  return (
+                    <label key={k} className="flex flex-col">
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                        {k}
+                      </span>
+                      <input
+                        type="number"
+                        name={`req_${k}`}
+                        min={0}
+                        max={20}
+                        defaultValue={reqs[k.toUpperCase()] ?? 0}
+                        required
+                        className="rounded-md border border-input bg-background px-2 py-1 tabular-nums text-sm"
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
+            <div className="sm:col-span-2 flex justify-end">
+              <button type="submit" className={btn("emerald")}>
+                Save settings
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="text-sm text-muted-foreground space-y-1">
+            <p>
+              Settings are locked once the draft leaves{" "}
+              <code>scheduled</code> state.
+            </p>
+            <ul className="text-xs space-y-0.5">
+              <li>
+                · Budget per manager: <strong>{d.budgetPerManager}</strong> cr
+              </li>
+              <li>
+                · Roster size: <strong>{d.rosterSize}</strong> players
+              </li>
+              <li>
+                · Quotas:{" "}
+                <code>
+                  {JSON.stringify(d.rosterRequirements)}
+                </code>
+              </li>
+            </ul>
+          </div>
+        )}
+      </Section>
 
       <Section title="Pause / Resume">
         <div className="flex gap-2">
