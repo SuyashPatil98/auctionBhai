@@ -91,14 +91,15 @@ export async function ingestCountriesAndSquads(
       flagUrl: string | null | undefined;
     };
     const countryRows: CountryRow[] = [];
-    const seenCodes = new Set<string>();
+    const seenExt = new Set<string>();
 
     for (const team of teams) {
       const externalId = String(team.id);
       const code = (team.area?.code ?? team.tla ?? "").toUpperCase();
       const name = team.area?.name ?? team.name;
-      if (!code || seenCodes.has(code)) continue;
-      seenCodes.add(code);
+      // Dedup on external_id (the stable football-data team id), not code.
+      if (!code || seenExt.has(externalId)) continue;
+      seenExt.add(externalId);
       countryRows.push({ externalId, name, code, flagUrl: team.crest ?? null });
     }
 
@@ -106,13 +107,18 @@ export async function ingestCountriesAndSquads(
       return { rowsChanged: 0, notes: "No teams returned." };
     }
 
+    // Conflict on external_id, NOT code. A country's derived code can change
+    // between ingests (e.g. Curaçao ANT→CUW — the FIFA-vs-ISO alias problem),
+    // but its football-data team id never moves. Keying on external_id lets us
+    // refresh code/name/flag idempotently instead of tripping the external_id
+    // unique constraint with a phantom INSERT under the shifted code.
     const insertedCountries = await db
       .insert(countries)
       .values(countryRows)
       .onConflictDoUpdate({
-        target: countries.code,
+        target: countries.externalId,
         set: {
-          externalId: sql`excluded.external_id`,
+          code: sql`excluded.code`,
           name: sql`excluded.name`,
           flagUrl: sql`excluded.flag_url`,
         },
