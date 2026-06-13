@@ -18,10 +18,13 @@
  * a free external pinger like cron-job.org can call it with the same header).
  * If it's unset (local dev), the route is open.
  *
- * Wired in vercel.json. On Vercel Hobby, crons are throttled to ~once/day —
- * fine as a backstop; the predictions page self-heals on every open, and the
- * /admin "Refresh everything" button runs the same steps on demand. For live
- * cadence during the tournament, point a free external cron at this URL.
+ * Wired in vercel.json. Vercel Hobby REJECTS any cron more frequent than daily
+ * at deploy time (not a throttle — it fails the build), so the schedule there
+ * is daily as a backstop. The predictions page self-heals on every open and
+ * the /admin "Refresh everything" button runs the same steps on demand. For
+ * live cadence during the tournament, point a free external cron (cron-job.org)
+ * at this URL with the bearer header — external pingers aren't subject to the
+ * Hobby cron limit.
  */
 
 import { NextResponse } from "next/server";

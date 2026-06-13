@@ -79,7 +79,7 @@ inflection points.
 | `/admin/ingest` | Fast football-data ingest buttons (tournament, fixtures only — slow ones removed) |
 | `/fixtures` | Read-only fixtures list |
 | `/api/health` | Diagnostic endpoint: env presence + sanitized DB error |
-| `/api/cron/sync` | Scheduled sync: `ingestFixtures` → `sweepPredictions` → `sweepAllActiveMatchdays`. Bearer-auth via `CRON_SECRET`. Wired in `vercel.json` crons (Hobby throttles to ~daily; point a free external pinger at it for live cadence) |
+| `/api/cron/sync` | Scheduled sync: `ingestFixtures` → `sweepPredictions` → `sweepAllActiveMatchdays`. Bearer-auth via `CRON_SECRET`. Wired in `vercel.json` crons (Hobby **rejects** sub-daily schedules at deploy time, so it's daily; point a free external pinger at it for live cadence) |
 
 **Phase 5 onward not started.** First WC kickoff is **June 11, 2026** — Phase 5 (lineups, stat entry, scoring, MOTM, live ratings) is the next big block and must be done before then.
 
@@ -337,7 +337,7 @@ pnpm test:rating            # 10 hand-built assertions on lib/personal-rating/co
 - **Hubertsidorowicz 2025-26 CSV has only standard + keeper + shooting + playing_time + misc**. Defense/passing/possession columns are absent. The schema has the columns (migration 015), the registry was trimmed to factors with real coverage. Add new CSVs later for richer factors without touching schema.
 - **fotmob-api is gated** by an x-mas rolling SHA-256 header. Reverse-engineered packages exist but break every few months — not worth the maintenance for a 4-friend app.
 - **Supabase admin API hides Postgres errors.** `auth.admin.deleteUser` returns a generic "Database error deleting user" regardless of cause — reproduce via direct SQL to see the real error.
-- **Vercel Hobby throttles crons to ~once/day** regardless of the `schedule` in `vercel.json` (we ask for hourly; Hobby ignores it). It won't fail the deploy — it just runs daily. For live in-match cadence at $0, point a free external pinger (cron-job.org) at `/api/cron/sync` with `Authorization: Bearer <CRON_SECRET>`. The `/predictions` page also self-heals on every open, so predictions settle without the cron; the cron's real job is pulling fresh scores into the DB.
+- **Vercel Hobby REJECTS sub-daily cron schedules at deploy time** — `vercel.json` with `"0 * * * *"` (hourly) fails the build with *"Hobby accounts are limited to daily cron jobs"*, which silently breaks **every** deploy (incl. GitHub-webhook ones) until fixed. Keep the schedule daily (e.g. `"0 6 * * *"`). For live in-match cadence at $0, point a free external pinger (cron-job.org) at `/api/cron/sync` with `Authorization: Bearer <CRON_SECRET>` — external pingers aren't subject to the limit. The `/predictions` page also self-heals on every open; the cron's real job is pulling fresh scores into the DB.
 - **Prediction scoring is gated on `fixtures.status = 'ft'`, not just a non-null score.** `ingestFixtures` writes whatever `score.fullTime` the API returns; gating on status avoids settling a prediction against a live/partial score and then never correcting it. The sweep recomputes all `ft` fixtures (not just unscored) so a later score correction propagates.
 
 ---
