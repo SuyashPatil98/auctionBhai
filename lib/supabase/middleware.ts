@@ -3,7 +3,10 @@ import { NextResponse, type NextRequest } from "next/server";
 
 type CookieToSet = { name: string; value: string; options?: CookieOptions };
 
-const PUBLIC_PATHS = ["/", "/login", "/auth"];
+// `/api/cron` authenticates itself via a CRON_SECRET bearer token, not a
+// Supabase session cookie. Without this exemption the session middleware
+// 307-redirects the machine-to-machine call to /login and the job never runs.
+const PUBLIC_PATHS = ["/", "/login", "/auth", "/api/cron"];
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
