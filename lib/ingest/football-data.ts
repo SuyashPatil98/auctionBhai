@@ -241,18 +241,35 @@ export async function ingestFixtures(
       lastSyncedAt: Date;
     };
     const fixtureRows: FixtureRow[] = [];
-    const skipped: string[] = [];
+    // Two distinct skip reasons, kept apart on purpose:
+    //  - awaitingDraw: a knockout slot whose teams aren't decided yet (the API
+    //    returns null team ids). Expected and benign — the fixture is created
+    //    on a later sync once the bracket is drawn. We can't store it now
+    //    because home/away country columns are NOT NULL.
+    //  - unmapped: real team ids that aren't in our countries table. A genuine
+    //    bug (a participant we failed to ingest) — surfaced loudly so a
+    //    knockout fixture never silently disappears.
+    const awaitingDraw: string[] = [];
+    const unmapped: string[] = [];
     const now = new Date();
 
     for (const m of matches) {
-      const homeExt = String(m.homeTeam?.id ?? "");
-      const awayExt = String(m.awayTeam?.id ?? "");
-      const homeId = countryIdByExt.get(homeExt);
-      const awayId = countryIdByExt.get(awayExt);
+      const homeIdRaw = m.homeTeam?.id ?? null;
+      const awayIdRaw = m.awayTeam?.id ?? null;
 
+      // Knockout slot not yet decided — skip quietly, pick it up next sync.
+      if (homeIdRaw === null || awayIdRaw === null) {
+        awaitingDraw.push(`${m.stage} #${m.id}`);
+        continue;
+      }
+
+      const homeId = countryIdByExt.get(String(homeIdRaw));
+      const awayId = countryIdByExt.get(String(awayIdRaw));
+
+      // Teams are decided but one didn't map to a country we know — real bug.
       if (!homeId || !awayId) {
-        skipped.push(
-          `match ${m.id}: ${m.homeTeam?.name} vs ${m.awayTeam?.name} (country mapping missing)`
+        unmapped.push(
+          `#${m.id} ${m.homeTeam?.name ?? homeIdRaw} vs ${m.awayTeam?.name ?? awayIdRaw}`
         );
         continue;
       }
@@ -294,13 +311,29 @@ export async function ingestFixtures(
         });
     }
 
+    if (unmapped.length > 0) {
+      // Loud signal in the function logs too, not just the notes column.
+      console.warn(
+        `[ingestFixtures] ${unmapped.length} decided match(es) had unmappable teams:`,
+        unmapped
+      );
+    }
+
+    const noteParts = [`${fixtureRows.length} fixtures upserted`];
+    if (awaitingDraw.length > 0) {
+      noteParts.push(`${awaitingDraw.length} awaiting knockout draw`);
+    }
+    if (unmapped.length > 0) {
+      noteParts.push(
+        `⚠ ${unmapped.length} UNMAPPED (decided but no country): ` +
+          unmapped.slice(0, 5).join("; ") +
+          (unmapped.length > 5 ? " …" : "")
+      );
+    }
+
     return {
       rowsChanged: fixtureRows.length,
-      notes:
-        `${fixtureRows.length} fixtures upserted` +
-        (skipped.length > 0
-          ? `, ${skipped.length} skipped (country mapping missing)`
-          : ""),
+      notes: noteParts.join(" · "),
     };
   });
 }
