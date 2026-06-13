@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   fixtures,
@@ -11,6 +11,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { requireLeagueMember } from "@/lib/util/require-league-member";
 import { scorePrediction } from "@/lib/predictions/score";
+import { sweepPredictions } from "@/lib/predictions/sweep";
 
 async function requireAuthedProfile(): Promise<string> {
   const supabase = await createClient();
@@ -125,50 +126,17 @@ export async function clearPrediction(formData: FormData) {
 }
 
 /**
- * Backfill: for every fixture with a final score that has predictions with
- * NULL points_awarded, compute and store points. Idempotent — safe to call
- * any time after match-stat entry, or once daily during the tournament.
+ * Score every finished fixture's predictions. Thin authed wrapper around the
+ * render-safe sweepPredictions() in lib/predictions/sweep.ts — that's the same
+ * function the predictions page (self-heal), the /admin refresh, the stat-entry
+ * flow, and the cron endpoint all share. Idempotent.
  *
- * Returns the number of predictions scored.
+ * Returns the number of predictions whose points changed.
  */
 export async function scoreFinalisedFixtures(): Promise<{ scored: number }> {
   await requireAuthedProfile();
-
-  // Pull all finalised fixtures + their as-yet-unscored predictions in one
-  // round trip.
-  const rows = await db
-    .select({
-      predictionId: predictions.id,
-      pHome: predictions.homeScore,
-      pAway: predictions.awayScore,
-      aHome: fixtures.homeScore,
-      aAway: fixtures.awayScore,
-    })
-    .from(predictions)
-    .innerJoin(fixtures, eq(fixtures.id, predictions.fixtureId))
-    .where(
-      and(
-        isNotNull(fixtures.homeScore),
-        isNotNull(fixtures.awayScore),
-        sql`${predictions.pointsAwarded} is null`
-      )
-    );
-
-  let scored = 0;
-  for (const r of rows) {
-    if (r.aHome === null || r.aAway === null) continue;
-    const pts = scorePrediction(
-      { homeScore: r.pHome, awayScore: r.pAway },
-      { homeScore: r.aHome, awayScore: r.aAway }
-    );
-    await db
-      .update(predictions)
-      .set({ pointsAwarded: pts })
-      .where(eq(predictions.id, r.predictionId));
-    scored++;
-  }
-
+  const result = await sweepPredictions();
   revalidatePath("/predictions");
   revalidatePath("/dashboard");
-  return { scored };
+  return result;
 }

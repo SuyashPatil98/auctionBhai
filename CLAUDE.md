@@ -45,7 +45,7 @@ inflection points.
 | ORM | Drizzle (schema in `lib/db/schema/`) |
 | Auth | Supabase Auth — **email + password** (was magic-link, switched in Phase 0 due to 2/hr rate limit) |
 | Realtime | Supabase Realtime (postgres_changes) |
-| Scheduled jobs | Inngest (planned for Phase 5; currently manual via `pnpm ingest`) |
+| Scheduled jobs | Vercel Cron → `/api/cron/sync` (pull scores + score predictions + settle standings). Inngest still planned for richer Phase 5 jobs. Manual fallback: `pnpm ingest` / `/admin` refresh |
 | AI | Google Gemini 2.5 Flash Lite |
 | Hosting | Vercel (Hobby tier) |
 | Package mgr | pnpm 11 |
@@ -79,6 +79,7 @@ inflection points.
 | `/admin/ingest` | Fast football-data ingest buttons (tournament, fixtures only — slow ones removed) |
 | `/fixtures` | Read-only fixtures list |
 | `/api/health` | Diagnostic endpoint: env presence + sanitized DB error |
+| `/api/cron/sync` | Scheduled sync: `ingestFixtures` → `sweepPredictions` → `sweepAllActiveMatchdays`. Bearer-auth via `CRON_SECRET`. Wired in `vercel.json` crons (Hobby throttles to ~daily; point a free external pinger at it for live cadence) |
 
 **Phase 5 onward not started.** First WC kickoff is **June 11, 2026** — Phase 5 (lineups, stat entry, scoring, MOTM, live ratings) is the next big block and must be done before then.
 
@@ -221,7 +222,9 @@ Calendar reminder: today is around May 15, 2026. **WC kicks off June 11.** Real 
 
 ### Predictions ✅ DONE
 
-`/predictions` — separate side-game, single page. Predict every fixture's score, FPL-style 3/2/1/0 scoring, leaderboard at top. Lock at kickoff. Schema in migration 016, scoring in `lib/predictions/score.ts`. `scoreFinalisedFixtures` server action sweeps in when fixtures finalise — runs automatically once Phase 5 brings stat entry.
+`/predictions` — separate side-game, single page. Predict every fixture's score, FPL-style 3/2/1/0 scoring, leaderboard at top. Lock at kickoff. Schema in migration 016, scoring in `lib/predictions/score.ts`.
+
+**Scoring is now wired in (was orphaned).** The pure math (`lib/predictions/score.ts`) is driven by `sweepPredictions()` in `lib/predictions/sweep.ts` — render-safe (no auth / no `revalidatePath`), gates on `status = 'ft'`, recomputes all finished fixtures so corrected scores propagate, writes only diffs. It's called from **four** places: the `/predictions` page self-heals on render, every steward stat edit (`rescoreFixtureMatchday`), the `/admin` "Refresh everything" button, and the `/api/cron/sync` job. `scoreFinalisedFixtures` (the authed server action) is now a thin wrapper over the sweep. Timing of the prediction doesn't matter — any prediction for a finished fixture gets settled; the fixture just has to have its result in the DB first (via ingest/cron/refresh).
 
 ### Account ✅ DONE
 
@@ -334,6 +337,8 @@ pnpm test:rating            # 10 hand-built assertions on lib/personal-rating/co
 - **Hubertsidorowicz 2025-26 CSV has only standard + keeper + shooting + playing_time + misc**. Defense/passing/possession columns are absent. The schema has the columns (migration 015), the registry was trimmed to factors with real coverage. Add new CSVs later for richer factors without touching schema.
 - **fotmob-api is gated** by an x-mas rolling SHA-256 header. Reverse-engineered packages exist but break every few months — not worth the maintenance for a 4-friend app.
 - **Supabase admin API hides Postgres errors.** `auth.admin.deleteUser` returns a generic "Database error deleting user" regardless of cause — reproduce via direct SQL to see the real error.
+- **Vercel Hobby throttles crons to ~once/day** regardless of the `schedule` in `vercel.json` (we ask for hourly; Hobby ignores it). It won't fail the deploy — it just runs daily. For live in-match cadence at $0, point a free external pinger (cron-job.org) at `/api/cron/sync` with `Authorization: Bearer <CRON_SECRET>`. The `/predictions` page also self-heals on every open, so predictions settle without the cron; the cron's real job is pulling fresh scores into the DB.
+- **Prediction scoring is gated on `fixtures.status = 'ft'`, not just a non-null score.** `ingestFixtures` writes whatever `score.fullTime` the API returns; gating on status avoids settling a prediction against a live/partial score and then never correcting it. The sweep recomputes all `ft` fixtures (not just unscored) so a later score correction propagates.
 
 ---
 
@@ -358,8 +363,10 @@ pnpm test:rating            # 10 hand-built assertions on lib/personal-rating/co
 | Personal rating factor registry | `lib/personal-rating/factors.ts` |
 | Personal rating ops | `app/(app)/scouting/actions.ts` (CRUD + bulk apply + clear) |
 | Reusable FIFA card | `components/PlayerCard.tsx` (3 variants) |
-| Predictions scoring | `lib/predictions/score.ts` |
+| Predictions scoring (pure) | `lib/predictions/score.ts` |
+| Predictions scoring sweep | `lib/predictions/sweep.ts` (`sweepPredictions()` — shared by page self-heal, stat entry, admin refresh, cron) |
 | Predictions UI | `app/(app)/predictions/` |
+| Scheduled sync (cron) | `app/api/cron/sync/route.ts` + `vercel.json` crons |
 | Account UI | `app/(app)/account/` |
 | One-button admin refresh | `app/(app)/admin/actions.ts` + `RefreshPanel.tsx` |
 | Theme | `app/globals.css` (dark-first, emerald primary, ambient radial gradients) |

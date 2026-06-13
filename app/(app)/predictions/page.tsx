@@ -12,6 +12,7 @@ import {
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfileTimezone } from "@/lib/util/current-profile";
+import { sweepPredictions } from "@/lib/predictions/sweep";
 import PredictionRow from "./PredictionRow";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,12 @@ export default async function PredictionsPage() {
   if (!user) redirect("/login");
   const myId = user.id;
   const tz = await getCurrentProfileTimezone();
+
+  // Self-heal: score any finished fixtures before reading the leaderboard, so
+  // opening this page is enough to settle predictions even if no admin refresh
+  // or cron has run. Render-safe (no revalidatePath) — we produce fresh output
+  // below anyway.
+  await sweepPredictions();
 
   // Members for the leaderboard
   const [league] = await db.select().from(leagues).limit(1);

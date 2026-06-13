@@ -15,6 +15,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireLeagueMember } from "@/lib/util/require-league-member";
 import { getMatch, type MatchDetail } from "@/lib/external/football-data";
 import { sweepMatchday } from "@/lib/scoring/sweep";
+import { sweepPredictions } from "@/lib/predictions/sweep";
 
 // ----------------------------------------------------------------------------
 // Auth + permission
@@ -586,6 +587,12 @@ async function rescoreFixtureMatchday(fixtureId: string) {
     if (fx) {
       await sweepMatchday(fx.matchday);
       revalidatePath(`/matchday/${fx.matchday}`);
+      revalidatePath("/dashboard");
+    }
+    // Settling a fixture's score also settles its score-predictions side-game.
+    const { scored } = await sweepPredictions();
+    if (scored > 0) {
+      revalidatePath("/predictions");
       revalidatePath("/dashboard");
     }
   } catch (e) {

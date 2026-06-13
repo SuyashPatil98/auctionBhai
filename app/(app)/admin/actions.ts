@@ -11,6 +11,8 @@ import {
 import { runComputePercentiles } from "@/lib/ops/compute-percentiles";
 import { runComputePrices } from "@/lib/ops/compute-prices";
 import { runSimulateBracket } from "@/lib/ops/simulate-bracket";
+import { sweepPredictions } from "@/lib/predictions/sweep";
+import { sweepAllActiveMatchdays } from "@/lib/scoring/sweep";
 
 async function requireAuthed(): Promise<void> {
   const supabase = await createClient();
@@ -96,6 +98,34 @@ export async function refreshAll(): Promise<RefreshResult> {
   steps.push(await timed("Tournament metadata", () => ingestTournament()));
   steps.push(await timed("Fixtures", () => ingestFixtures()));
 
+  // Fresh fixture scores → settle both side leaderboards. Predictions need
+  // only the fixture score; matchday standings need finalized player stats
+  // (no-op until stewards have entered them, but cheap + idempotent).
+  steps.push(
+    await timed("Score predictions", () =>
+      withIngestionRun("score:predictions", "recompute", async () => {
+        const r = await sweepPredictions();
+        return {
+          rowsChanged: r.scored,
+          notes: `${r.scored} prediction${r.scored === 1 ? "" : "s"} (re)scored`,
+        };
+      })
+    )
+  );
+
+  steps.push(
+    await timed("Matchday standings", () =>
+      withIngestionRun("score:matchdays", "recompute", async () => {
+        const reports = await sweepAllActiveMatchdays();
+        const managers = reports.reduce((a, r) => a + r.managersScored, 0);
+        return {
+          rowsChanged: managers,
+          notes: `${reports.length} matchday${reports.length === 1 ? "" : "s"} · ${managers} manager-scores`,
+        };
+      })
+    )
+  );
+
   steps.push(
     await timed("Bracket simulation", () =>
       withIngestionRun("sim:bracket", "recompute", async () => {
@@ -141,6 +171,8 @@ export async function refreshAll(): Promise<RefreshResult> {
   revalidatePath("/players");
   revalidatePath("/team");
   revalidatePath("/dashboard");
+  revalidatePath("/predictions");
+  revalidatePath("/matchday");
 
   return {
     steps,
