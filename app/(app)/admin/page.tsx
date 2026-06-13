@@ -3,6 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import RefreshPanel from "./RefreshPanel";
 
 export const dynamic = "force-dynamic";
+// The "Refresh everything" server action (squads + fixtures + sims + scoring)
+// runs ~15s — give it headroom past Vercel's 10s default.
+export const maxDuration = 60;
 
 export const metadata = { title: "Admin · FiFantasy" };
 

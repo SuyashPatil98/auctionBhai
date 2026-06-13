@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { withIngestionRun } from "@/lib/ingest/run";
 import {
+  ingestCountriesAndSquads,
   ingestFixtures,
   ingestTournament,
 } from "@/lib/ingest/football-data";
@@ -27,18 +28,22 @@ async function requireAuthed(): Promise<void> {
 //
 // Chains every fast op in dependency order:
 //   1. Tournament ingest        (1 API call, ~1s)
-//   2. Fixtures ingest          (1 API call, ~2s)
-//   3. Bracket Monte Carlo      (10k sims, ~1s)
-//   4. Recompute prices         (~3s)
-//   5. Recompute percentiles    (~5s)
+//   2. Countries + squads        (1 API call, ~3s) — keeps the player list in
+//      sync with national-team call-ups (e.g. a late Ronaldo/Neymar add).
+//      /competitions/WC/teams returns all 48 squads inline in ONE call, so the
+//      old "5 min, rate-limited" assumption was stale.
+//   3. Fixtures ingest          (1 API call, ~2s)
+//   4. Bracket Monte Carlo      (10k sims, ~1s)
+//   5. Recompute prices         (~3s)
+//   6. Recompute percentiles    (~5s)
 //
-// Total: ~12s. Within Vercel hobby's 10s/60s timeouts (hobby is 10s
-// max, paid is 60s — squeaks under on paid, may time out on hobby for
-// a slow DB roundtrip).
+// Total: ~15s. The admin page sets `maxDuration = 60` so this fits within
+// Vercel's window (Hobby allows up to 60s when configured).
 //
-// NOT done here (would time out):
-//   - Countries + squads ingest (5 min, rate-limited)
-//   - Full compute:ratings (30s+ with engine layers)
+// NOT done here (genuinely too heavy / needs local CSVs):
+//   - Full compute:ratings (30s+ with engine layers) — so brand-new squad
+//     players appear in the list but have no rating/price/tier until a CLI
+//     `pnpm compute:ratings` runs (needs Transfermarkt/FBref data).
 //   - Transfermarkt / FBref / WC pedigree ingest (CSV-based, local-only)
 // Those stay CLI — see CLAUDE.md.
 //
@@ -94,8 +99,12 @@ export async function refreshAll(): Promise<RefreshResult> {
 
   const steps: StepResult[] = [];
 
-  // ingestTournament/ingestFixtures wrap themselves in withIngestionRun.
+  // ingestTournament/ingestCountriesAndSquads/ingestFixtures wrap themselves
+  // in withIngestionRun.
   steps.push(await timed("Tournament metadata", () => ingestTournament()));
+  steps.push(
+    await timed("Countries + squads", () => ingestCountriesAndSquads())
+  );
   steps.push(await timed("Fixtures", () => ingestFixtures()));
 
   // Fresh fixture scores → settle both side leaderboards. Predictions need

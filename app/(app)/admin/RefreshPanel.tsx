@@ -8,8 +8,9 @@ import { refreshAll, type RefreshResult } from "./actions";
  * The entire /admin surface — one big button that runs the fast
  * ingest + recompute pipeline and shows what changed.
  *
- * Everything heavier (countries+squads ingest, AI Gemini, TM/FBref
- * CSV imports) stays in CLI per CLAUDE.md.
+ * Squads + fixtures now run in the button (each is one fast API call).
+ * Only the genuinely heavy CSV/engine ops (TM/FBref imports, full
+ * compute:ratings, AI Gemini) stay in CLI per CLAUDE.md.
  */
 export default function RefreshPanel() {
   const router = useRouter();
@@ -52,9 +53,10 @@ export default function RefreshPanel() {
               {isPending ? "Refreshing…" : "Refresh everything"}
             </p>
             <p className="text-sm text-muted-foreground mt-1">
-              Pulls fresh fixtures + tournament metadata from football-data.org,
-              re-runs the bracket simulation, recomputes prices and factor
-              percentiles. Takes about 10 seconds.
+              Pulls fresh squads (new call-ups), fixtures + tournament metadata
+              from football-data.org, scores predictions + standings, re-runs
+              the bracket simulation, recomputes prices and factor percentiles.
+              Takes about 15 seconds.
             </p>
           </div>
         </div>
@@ -78,7 +80,6 @@ export default function RefreshPanel() {
           box:
         </p>
         <div className="grid gap-1 text-xs font-mono">
-          <CliLine cmd="pnpm ingest" desc="Full football-data sync incl. countries + squads" />
           <CliLine cmd="pnpm import:tm" desc="Refresh Transfermarkt market values + caps" />
           <CliLine cmd="pnpm import:fbref" desc="Re-import FBref season stats" />
           <CliLine cmd="pnpm import:wc" desc="Apply edits to lib/data/wc_pedigree.json" />

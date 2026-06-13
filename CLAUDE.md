@@ -232,7 +232,7 @@ Calendar reminder: today is around May 15, 2026. **WC kicks off June 11.** Real 
 
 ### Admin ✅ refactored to one button
 
-`/admin` is a single "Refresh everything" button that chains: tournament + fixtures ingest (football-data, ~3s) → bracket sim → prices → percentiles (~9s total). Returns structured per-step counts. Heavy ops (countries+squads, TM/FBref imports, full compute:ratings, photo backfill) stay CLI — clearly listed on the page. `/draft/admin` (commissioner console) is unchanged + got UI member management: ✕ remove button per member, + add chip for profiles not in league.
+`/admin` is a single "Refresh everything" button that chains: tournament + **countries+squads** + fixtures ingest (football-data) → score predictions → settle matchday standings → bracket sim → prices → percentiles (~15s total; page sets `maxDuration = 60`). Returns structured per-step counts. **Squads are now in the button** — `/competitions/WC/teams` returns all 48 squads inline in one call, so late national-team call-ups (e.g. a Ronaldo/Neymar add) land on the next refresh. Caveat: brand-new players appear in `/players` (left-joined, so unpriced rows still show, sorted last) but have no rating/price/tier until a CLI `pnpm compute:ratings` runs (needs TM/FBref CSVs). Genuinely heavy ops (TM/FBref imports, full compute:ratings, photo backfill) stay CLI — listed on the page. `/draft/admin` (commissioner console) is unchanged + got UI member management: ✕ remove button per member, + add chip for profiles not in league.
 
 ### Phase 7 polish ✅ done for desktop, mobile audit done
 
