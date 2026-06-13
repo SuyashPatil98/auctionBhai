@@ -31,6 +31,7 @@ import { NextResponse } from "next/server";
 import { ingestFixtures } from "@/lib/ingest/football-data";
 import { sweepPredictions } from "@/lib/predictions/sweep";
 import { sweepAllActiveMatchdays } from "@/lib/scoring/sweep";
+import { carryForwardLockedMatchdays } from "@/lib/lineup/carry-forward";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -60,6 +61,15 @@ export async function GET(req: Request) {
   } catch (e) {
     out.ok = false;
     out.predictionsError = e instanceof Error ? e.message : String(e);
+  }
+
+  try {
+    // Carry forward last lineup for anyone who didn't set one, for every
+    // locked matchday — so carried lineups appear at lock, before stats land.
+    out.carryForward = await carryForwardLockedMatchdays();
+  } catch (e) {
+    out.ok = false;
+    out.carryForwardError = e instanceof Error ? e.message : String(e);
   }
 
   try {

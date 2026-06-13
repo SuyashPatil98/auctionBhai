@@ -29,6 +29,7 @@ import {
   type LineupSlot,
 } from "./matchday";
 import { isFormationKey } from "@/lib/lineup/formations";
+import { autoFillCarryForward } from "@/lib/lineup/carry-forward";
 import type { Position, Stage } from "./points";
 
 export type SweepReport = {
@@ -43,6 +44,11 @@ export type SweepReport = {
  * one matchday_scores row per manager. Safe to re-run.
  */
 export async function sweepMatchday(matchday: number): Promise<SweepReport> {
+  // 0. Carry forward last lineup for anyone who didn't set one (only fires once
+  //    the matchday has locked). Guarantees every scoring path scores the
+  //    carried-forward lineup, not just managers who set one explicitly.
+  await autoFillCarryForward(matchday);
+
   // 1. Lineups for this matchday
   const lineupRows = await db
     .select()
