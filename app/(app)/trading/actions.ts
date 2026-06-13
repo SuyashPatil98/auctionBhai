@@ -392,125 +392,133 @@ export async function resolveFreeAgentWindow(
     .limit(1);
   if (!draft) throw new Error("no draft");
 
-  // All (player, bids) for this window not yet resolved
-  const bidsByPlayer = (await db.execute(sql`
-    select
-      fab.real_player_id as "realPlayerId",
-      fab.profile_id      as "profileId",
-      fab.amount          as "amount",
-      fab.placed_at       as "placedAt"
-    from free_agent_bids fab
-    where fab.window_key = ${windowKey}
-      and fab.withdrawn_at is null
-      and not exists (
-        select 1 from free_agent_resolutions far
-         where far.window_key = fab.window_key
-           and far.real_player_id = fab.real_player_id
-      )
-    order by fab.real_player_id, fab.amount desc, fab.placed_at asc
-  `)) as unknown as Array<{
-    realPlayerId: string;
-    profileId: string;
-    amount: number;
-    placedAt: Date;
-  }>;
-
-  // Group by player
-  const byPlayer = new Map<string, typeof bidsByPlayer>();
-  for (const b of bidsByPlayer) {
-    if (!byPlayer.has(b.realPlayerId)) byPlayer.set(b.realPlayerId, []);
-    byPlayer.get(b.realPlayerId)!.push(b);
-  }
-
-  let resolved = 0;
-  let awarded = 0;
-
-  for (const [realPlayerId, bids] of byPlayer) {
-    // Skip if player got owned via some other path mid-resolution
-    const [owned] = await db
-      .select({ id: rosters.realPlayerId })
-      .from(rosters)
-      .where(
-        and(
-          eq(rosters.leagueId, league.id),
-          eq(rosters.realPlayerId, realPlayerId),
-          isNull(rosters.droppedAt)
+  // Resolve the whole window in ONE transaction — a mid-run failure must not
+  // leave partial state (a player awarded + budget charged but no resolution
+  // row, which would double-charge on the idempotent re-run). Budget reads
+  // inside the tx see earlier awards in the same run, so a manager can't win
+  // two players they can't jointly afford.
+  const { resolved, awarded } = await db.transaction(async (tx) => {
+    const bidsByPlayer = (await tx.execute(sql`
+      select
+        fab.real_player_id as "realPlayerId",
+        fab.profile_id      as "profileId",
+        fab.amount          as "amount",
+        fab.placed_at       as "placedAt"
+      from free_agent_bids fab
+      where fab.window_key = ${windowKey}
+        and fab.withdrawn_at is null
+        and not exists (
+          select 1 from free_agent_resolutions far
+           where far.window_key = fab.window_key
+             and far.real_player_id = fab.real_player_id
         )
-      )
-      .limit(1);
-    if (owned) {
-      await db.insert(freeAgentResolutions).values({
-        windowKey,
-        realPlayerId,
-        winnerProfileId: null,
-        winningAmount: null,
-        biddersCount: bids.length,
-      });
-      resolved++;
-      continue;
+      order by fab.real_player_id, fab.amount desc, fab.placed_at asc
+    `)) as unknown as Array<{
+      realPlayerId: string;
+      profileId: string;
+      amount: number;
+      placedAt: Date;
+    }>;
+
+    // Group by player
+    const byPlayer = new Map<string, typeof bidsByPlayer>();
+    for (const b of bidsByPlayer) {
+      if (!byPlayer.has(b.realPlayerId)) byPlayer.set(b.realPlayerId, []);
+      byPlayer.get(b.realPlayerId)!.push(b);
     }
 
-    let winner: { profileId: string; amount: number } | null = null;
-    for (const bid of bids) {
-      const [b] = await db
-        .select()
-        .from(managerBudgets)
+    let resolved = 0;
+    let awarded = 0;
+
+    for (const [realPlayerId, bids] of byPlayer) {
+      // Skip if player got owned via some other path mid-resolution
+      const [owned] = await tx
+        .select({ id: rosters.realPlayerId })
+        .from(rosters)
         .where(
           and(
-            eq(managerBudgets.draftId, draft.id),
-            eq(managerBudgets.profileId, bid.profileId)
+            eq(rosters.leagueId, league.id),
+            eq(rosters.realPlayerId, realPlayerId),
+            isNull(rosters.droppedAt)
           )
         )
         .limit(1);
-      const remaining = draft.budgetPerManager - (b?.spent ?? 0);
-      if (bid.amount <= remaining) {
-        winner = { profileId: bid.profileId, amount: bid.amount };
-        break;
+      if (owned) {
+        await tx.insert(freeAgentResolutions).values({
+          windowKey,
+          realPlayerId,
+          winnerProfileId: null,
+          winningAmount: null,
+          biddersCount: bids.length,
+        });
+        resolved++;
+        continue;
       }
-    }
 
-    if (winner) {
-      // Award
-      await db.insert(rosters).values({
-        leagueId: league.id,
-        profileId: winner.profileId,
-        realPlayerId,
-        acquiredVia: "free_agent",
-        acquiredAmount: winner.amount,
-      });
-      await db
-        .update(managerBudgets)
-        .set({
-          spent: sql`${managerBudgets.spent} + ${winner.amount}`,
-          slotsFilled: sql`${managerBudgets.slotsFilled} + 1`,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(managerBudgets.draftId, draft.id),
-            eq(managerBudgets.profileId, winner.profileId)
+      let winner: { profileId: string; amount: number } | null = null;
+      for (const bid of bids) {
+        const [b] = await tx
+          .select()
+          .from(managerBudgets)
+          .where(
+            and(
+              eq(managerBudgets.draftId, draft.id),
+              eq(managerBudgets.profileId, bid.profileId)
+            )
           )
-        );
-      awarded++;
+          .limit(1);
+        const remaining = draft.budgetPerManager - (b?.spent ?? 0);
+        if (bid.amount <= remaining) {
+          winner = { profileId: bid.profileId, amount: bid.amount };
+          break;
+        }
+      }
+
+      if (winner) {
+        // Award
+        await tx.insert(rosters).values({
+          leagueId: league.id,
+          profileId: winner.profileId,
+          realPlayerId,
+          acquiredVia: "free_agent",
+          acquiredAmount: winner.amount,
+        });
+        await tx
+          .update(managerBudgets)
+          .set({
+            spent: sql`${managerBudgets.spent} + ${winner.amount}`,
+            slotsFilled: sql`${managerBudgets.slotsFilled} + 1`,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(managerBudgets.draftId, draft.id),
+              eq(managerBudgets.profileId, winner.profileId)
+            )
+          );
+        awarded++;
+      }
+
+      await tx.insert(freeAgentResolutions).values({
+        windowKey,
+        realPlayerId,
+        winnerProfileId: winner?.profileId ?? null,
+        winningAmount: winner?.amount ?? null,
+        biddersCount: bids.length,
+      });
+      resolved++;
     }
 
-    await db.insert(freeAgentResolutions).values({
-      windowKey,
-      realPlayerId,
-      winnerProfileId: winner?.profileId ?? null,
-      winningAmount: winner?.amount ?? null,
-      biddersCount: bids.length,
+    await tx.insert(auditLog).values({
+      actorProfileId: profileId,
+      action: "trading.fa_resolve",
+      entity: "free_agent_resolutions",
+      entityId: null,
+      before: null,
+      after: { windowKey, resolved, awarded },
     });
-    resolved++;
-  }
 
-  await db.insert(auditLog).values({
-    actorProfileId: profileId,
-    action: "trading.fa_resolve",
-    entity: "free_agent_resolutions",
-    entityId: null,
-    before: null,
-    after: { windowKey, resolved, awarded },
+    return { resolved, awarded };
   });
 
   revalidatePath("/trading");

@@ -309,6 +309,23 @@ export async function placeBid(formData: FormData) {
     )[0];
     if (!player) return { ok: false as const, reason: "player not found" };
 
+    // A pass is locked-in: if this manager already passed on this lot, they
+    // can't come back and bid (and they don't count toward the early-close
+    // pool). Mirrors passLot()'s intent.
+    const [passed] = await tx
+      .select({ lotId: auctionLotPasses.lotId })
+      .from(auctionLotPasses)
+      .where(
+        and(
+          eq(auctionLotPasses.lotId, lot.id),
+          eq(auctionLotPasses.profileId, profileId)
+        )
+      )
+      .limit(1);
+    if (passed) {
+      return { ok: false as const, reason: "you passed on this lot" };
+    }
+
     // Bidder's roster + budget
     const myBudget = (
       await tx

@@ -69,15 +69,9 @@ export default function MatchdayLeaderboard({
         },
         () => router.refresh()
       )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "player_match_stats",
-        },
-        () => router.refresh()
-      )
+      // NB: player_match_stats isn't in the supabase_realtime publication, so
+      // we don't subscribe to it — every stat edit re-sweeps matchday_scores
+      // (which IS published), so the subscription above already covers it.
       .on(
         "postgres_changes",
         {
